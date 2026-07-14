@@ -122,6 +122,25 @@
   .drawer .df{padding:14px 20px;border-top:1px solid var(--line);font-family:var(--mono);font-size:.82rem;display:flex;justify-content:space-between;align-items:center}
   .drawer .df b{font-size:1.05rem}
 
+  /* ---- coverage editor ---- */
+  .covwrap{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:12px}
+  .covcard{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px}
+  .covhead{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;border-bottom:1px solid var(--line);padding-bottom:10px;margin-bottom:2px}
+  .covhead h3{font-family:var(--disp);margin:0;font-size:1.15rem}
+  .covtime{font-family:var(--mono);font-size:.72rem;color:var(--muted)}
+  .covtot{font-family:var(--mono);font-size:.7rem;color:var(--muted);text-align:right;white-space:nowrap}
+  .covtot b{font-family:var(--disp);font-size:1.1rem;color:var(--ink);display:block;line-height:1}
+  .reqgrid{margin:2px 0 2px}
+  .reqrow{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:4px 0}
+  .reqrow .rc{font-family:var(--mono);font-size:.8rem}
+  .reqrow input{font:inherit;font-family:var(--mono);width:58px;padding:5px 8px;border:1px solid var(--line-hard);border-radius:7px;background:var(--paper);color:var(--ink);text-align:center}
+  .reqrow input:focus-visible{outline:2px solid var(--foh);outline-offset:1px;border-color:var(--foh)}
+  .hoursrow{display:flex;align-items:center;gap:8px;padding:8px 0 4px;margin-bottom:2px;border-bottom:1px dashed var(--line);font-family:var(--mono);font-size:.74rem;color:var(--muted)}
+  .hoursrow label{display:inline-flex;align-items:center;gap:6px}
+  .hoursrow input[type=time]{font:inherit;font-family:var(--mono);padding:4px 6px;border:1px solid var(--line-hard);border-radius:6px;background:var(--paper);color:var(--ink)}
+  .hoursrow input[type=time]:focus-visible{outline:2px solid var(--boh);outline-offset:1px;border-color:var(--boh)}
+  .hoursrow .thru{color:var(--line-hard)}
+
   /* ---- staff tab ---- */
   .panel{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:18px 20px;margin-top:16px}
   .staff-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px;margin-top:14px}
@@ -163,6 +182,7 @@
   footer{max-width:1180px;margin:40px auto 0;padding:16px 20px;border-top:1px solid var(--line);font-family:var(--mono);font-size:.72rem;color:var(--muted);display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px}
 
   @media (max-width:820px){
+    .covwrap{grid-template-columns:1fr}
     .grid{grid-template-columns:1fr;gap:10px}
     .gh{display:none}
     .rowlab{display:none}
@@ -183,6 +203,7 @@
     <nav class="tabs" id="tabs">
       <button data-tab="schedule" class="on">Schedule</button>
       <button data-tab="staff">Crew</button>
+      <button data-tab="coverage">Coverage</button>
       <button data-tab="orders">Orders</button>
     </nav>
   </div>
@@ -194,7 +215,7 @@
 <aside class="drawer" id="drawer" aria-hidden="true"></aside>
 
 <footer>
-  <span>The House · v0.1 — where back of house meets front of house</span>
+  <span>The House · v0.2 — where back of house meets front of house</span>
   <span id="foot-count"></span>
 </footer>
 
@@ -219,11 +240,20 @@ const ROLES = {
 const roleOrder = Object.keys(ROLES);
 
 const BLOCKS = {
-  open:  {label:"Open",  time:"8a–2p",  hours:6},
-  mid:   {label:"Mid",   time:"11a–5p", hours:6},
-  close: {label:"Close", time:"4p–12a", hours:8},
+  open:  {label:"Open",  start:"08:00", end:"14:00"},
+  mid:   {label:"Mid",   start:"11:00", end:"17:00"},
+  close: {label:"Close", start:"16:00", end:"00:00"},
 };
 const blockOrder = ["open","mid","close"];
+
+// block times live in state.blocks (editable); BLOCKS holds labels + defaults
+function defaultBlocks(){ const o={}; blockOrder.forEach(b=>o[b]={start:BLOCKS[b].start,end:BLOCKS[b].end}); return o; }
+function blkStart(b){ return ((state.blocks&&state.blocks[b])||BLOCKS[b]).start; }
+function blkEnd(b){ return ((state.blocks&&state.blocks[b])||BLOCKS[b]).end; }
+function toMin(t){ const [h,m]=String(t).split(":").map(Number); return h*60+m; }
+function blockHours(b){ let s=toMin(blkStart(b)), e=toMin(blkEnd(b)); if(e<=s) e+=1440; return Math.round((e-s)/60*4)/4; }
+function fmt12(t){ let [h,m]=String(t).split(":").map(Number); const ap=(h>=12&&h<24)?"p":"a"; let hh=h%12; if(hh===0) hh=12; return hh+(m?":"+String(m).padStart(2,"0"):"")+ap; }
+function blockTime(b){ return fmt12(blkStart(b))+"–"+fmt12(blkEnd(b)); }
 
 // default coverage requirement: block -> role -> count needed
 const DEFAULT_REQ = {
@@ -239,7 +269,7 @@ const KEY = "the-house:v1";
 let state = load();
 
 function blankState(){
-  return { restaurant:"", weekStart: mondayISO(new Date()), staff:[], schedule:{}, req: clone(DEFAULT_REQ) };
+  return { restaurant:"", weekStart: mondayISO(new Date()), staff:[], schedule:{}, req: clone(DEFAULT_REQ), blocks: defaultBlocks() };
 }
 function load(){
   try{
@@ -247,6 +277,7 @@ function load(){
     if(!raw) return blankState();
     const s = JSON.parse(raw);
     if(!s.req) s.req = clone(DEFAULT_REQ);
+    if(!s.blocks) s.blocks = defaultBlocks();
     if(!s.schedule) s.schedule = {};
     if(!s.staff) s.staff = [];
     if(!s.weekStart) s.weekStart = mondayISO(new Date());
@@ -317,7 +348,7 @@ function coverage(dayIdx, block){
       return {role:r, need, have, short, people:byRole[r]||[]};
     });
   const cost = cell.reduce((sum,id)=>{
-    const s=staffById(id); return sum + (s? (s.rate||0)*BLOCKS[block].hours : 0);
+    const s=staffById(id); return sum + (s? (s.rate||0)*blockHours(block) : 0);
   },0);
   return {rows, requiredTotal, shortTotal, filled:cell.length, cost};
 }
@@ -335,11 +366,12 @@ function render(){
   // orders dot never; schedule dot if short this week
   const schedBtn = document.querySelector('#tabs button[data-tab="schedule"]');
   schedBtn.querySelector(".dot")?.remove();
-  if(weekShort()>0){ const d=document.createElement("span"); d.className="dot"; d.title="uncovered stations this week"; schedBtn.appendChild(d); }
+  if(state.staff.length>0 && weekShort()>0){ const d=document.createElement("span"); d.className="dot"; d.title="uncovered stations this week"; schedBtn.appendChild(d); }
   document.getElementById("restBtn").textContent = state.restaurant ? "▮ "+state.restaurant : "▮ set restaurant";
   document.getElementById("foot-count").textContent = state.staff.length + " on crew";
   if(tab==="schedule") renderSchedule();
   else if(tab==="staff") renderStaff();
+  else if(tab==="coverage") renderCoverage();
   else renderOrders();
 }
 
@@ -369,7 +401,7 @@ function renderSchedule(){
     h += `<div class="gh"><span class="day">${DAYS[d]}</span>${fmtShort(addDaysISO(ws,d))}</div>`;
   }
   blockOrder.forEach(block=>{
-    h += `<div class="rowlab"><b>${BLOCKS[block].label}</b>${BLOCKS[block].time}</div>`;
+    h += `<div class="rowlab"><b>${BLOCKS[block].label}</b>${blockTime(block)}</div>`;
     for(let d=0; d<7; d++){
       h += cellHTML(d, block);
     }
@@ -465,7 +497,7 @@ function drawerHTML(d, block){
     <div class="dh">
       <div>
         <h3>${DAYS[d]} · ${BLOCKS[block].label}</h3>
-        <div class="sub">${fmtShort(dateISO)} · ${BLOCKS[block].time} · ${BLOCKS[block].hours}h</div>
+        <div class="sub">${fmtShort(dateISO)} · ${blockTime(block)} · ${blockHours(block)}h</div>
       </div>
       <button class="x" id="dx" aria-label="Close">✕</button>
     </div>
@@ -560,6 +592,71 @@ function loadSample(){
   ];
   S.forEach(([name,role,rate],i)=> state.staff.push({id:"s"+Date.now()+i, name, role, rate}));
   save(); renderStaff();
+}
+
+/* ---------- coverage tab (editable staffing rules) ---------- */
+function renderCoverage(){
+  const card = (block)=>{
+    const B = BLOCKS[block];
+    const req = state.req[block] || {};
+    const total = roleOrder.reduce((t,r)=>t+(req[r]||0),0);
+    const zone = (zoneKey,title)=>`
+      <div class="zone-h ${zoneKey}"><span class="tag"></span>${title}</div>
+      <div class="reqgrid">
+        ${roleOrder.filter(r=>ROLES[r].zone===zoneKey).map(r=>`
+          <label class="reqrow">
+            <span class="rc"><b>${ROLES[r].code}</b> ${ROLES[r].label}</span>
+            <input type="number" min="0" step="1" value="${req[r]||0}" data-block="${block}" data-role="${r}" aria-label="${ROLES[r].label} needed at ${B.label}">
+          </label>`).join("")}
+      </div>`;
+    return `<div class="covcard">
+      <div class="covhead">
+        <div><h3>${B.label}</h3><span class="covtime" data-time="${block}">${blockTime(block)} · ${blockHours(block)}h</span></div>
+        <span class="covtot" data-tot="${block}"><b>${total}</b> on the floor</span>
+      </div>
+      <div class="hoursrow">
+        <label>Start <input type="time" value="${blkStart(block)}" data-btime="${block}" data-edge="start" aria-label="${B.label} start time"></label>
+        <span class="thru">→</span>
+        <label>End <input type="time" value="${blkEnd(block)}" data-btime="${block}" data-edge="end" aria-label="${B.label} end time"></label>
+      </div>
+      ${zone("boh","Back of house")}
+      ${zone("foh","Front of house")}
+    </div>`;
+  };
+  view.innerHTML = `
+    <div class="weekstrip">
+      <div><h2>Coverage rules</h2><div class="range">the minimum crew each shift needs — set these to your room</div></div>
+      <button class="btn ghost" id="reqReset" style="margin-left:auto">Reset to defaults</button>
+    </div>
+    <div class="covwrap">${blockOrder.map(card).join("")}</div>
+    <div class="legend" style="margin-top:14px"><span class="k">applies to every day of the week · per-day overrides are on the roadmap</span></div>`;
+
+  view.querySelectorAll("input[data-block]").forEach(inp=>{
+    inp.onchange = ()=>{
+      const b=inp.dataset.block, r=inp.dataset.role;
+      let v=parseInt(inp.value,10); if(isNaN(v)||v<0) v=0; inp.value=v;
+      if(!state.req[b]) state.req[b]={};
+      state.req[b][r]=v;
+      save();
+      const el = view.querySelector(`[data-tot="${b}"] b`);
+      if(el) el.textContent = roleOrder.reduce((t,rr)=>t+((state.req[b]||{})[rr]||0),0);
+    };
+  });
+  view.querySelectorAll("input[data-btime]").forEach(inp=>{
+    inp.onchange = ()=>{
+      const b=inp.dataset.btime, edge=inp.dataset.edge;
+      if(!inp.value){ inp.value = edge==="start"?blkStart(b):blkEnd(b); return; }
+      if(!state.blocks) state.blocks = defaultBlocks();
+      if(!state.blocks[b]) state.blocks[b] = {start:BLOCKS[b].start, end:BLOCKS[b].end};
+      state.blocks[b][edge] = inp.value;
+      save();
+      const el = view.querySelector(`[data-time="${b}"]`);
+      if(el) el.textContent = `${blockTime(b)} · ${blockHours(b)}h`;
+    };
+  });
+  document.getElementById("reqReset").onclick=()=>{
+    if(confirm("Reset all coverage rules to the starting defaults?")){ state.req=clone(DEFAULT_REQ); save(); renderCoverage(); }
+  };
 }
 
 /* ---------- orders tab (Toast layer mount point) ---------- */
