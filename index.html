@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The House — crew schedule</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#242a27;
+    --paper:#f2ece0;
+    --card:#fbf7ee;
+    --line:rgba(36,42,39,0.14);
+    --line-hard:rgba(36,42,39,0.28);
+    --muted:#6f6a5f;
+    --foh:#b8763a;        /* dining room — warm brass */
+    --foh-wash:rgba(184,118,58,0.12);
+    --boh:#3f6b6e;        /* the line — fired teal */
+    --boh-wash:rgba(63,107,110,0.12);
+    --flag:#c1442e;       /* 86'd — short a station */
+    --flag-wash:rgba(193,68,46,0.10);
+    --ok:#4a7a52;
+    --r:10px;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+    --disp:"Bricolage Grotesque",system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    --body:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:var(--body);
+    font-size:15px;
+    line-height:1.45;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1180px;margin:0 auto;padding:0 20px 80px}
+
+  /* ---- header / the pass bar ---- */
+  header{
+    border-bottom:2px solid var(--ink);
+    background:var(--paper);
+    position:sticky;top:0;z-index:20;
+  }
+  .bar{max-width:1180px;margin:0 auto;padding:14px 20px;display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+  .brand{display:flex;align-items:baseline;gap:10px;margin-right:auto}
+  .wordmark{font-family:var(--disp);font-weight:800;font-size:1.5rem;letter-spacing:-0.02em;line-height:1}
+  .wordmark .sep{color:var(--foh)}
+  .rest-name{font-family:var(--mono);font-size:.78rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;background:none;border:0;cursor:pointer;padding:2px 4px;border-radius:6px}
+  .rest-name:hover{background:var(--card)}
+  nav.tabs{display:flex;gap:2px;background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:3px}
+  nav.tabs button{
+    font:inherit;font-size:.9rem;border:0;background:none;color:var(--muted);
+    padding:6px 14px;border-radius:7px;cursor:pointer;font-weight:600;
+  }
+  nav.tabs button.on{background:var(--ink);color:var(--paper)}
+  nav.tabs button .dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--flag);margin-left:6px;vertical-align:middle}
+
+  /* ---- week strip ---- */
+  .weekstrip{display:flex;align-items:center;gap:14px;padding:16px 0 6px}
+  .weekstrip h2{font-family:var(--disp);font-weight:700;font-size:1.15rem;margin:0}
+  .weekstrip .range{font-family:var(--mono);font-size:.8rem;color:var(--muted)}
+  .navbtn{font:inherit;font-family:var(--mono);border:1px solid var(--line-hard);background:var(--card);width:32px;height:32px;border-radius:8px;cursor:pointer;color:var(--ink);font-size:1rem;line-height:1}
+  .navbtn:hover{border-color:var(--ink)}
+  .weeklabor{margin-left:auto;font-family:var(--mono);font-size:.82rem;color:var(--muted);text-align:right}
+  .weeklabor b{color:var(--ink);font-size:1rem}
+
+  /* ---- schedule grid ---- */
+  .grid{display:grid;grid-template-columns:64px repeat(7,1fr);gap:6px;margin-top:10px}
+  .gh{font-family:var(--mono);font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;padding:6px 4px;text-align:center}
+  .gh .day{display:block;color:var(--ink);font-size:.8rem;font-weight:700}
+  .rowlab{font-family:var(--mono);font-size:.72rem;color:var(--muted);display:flex;flex-direction:column;justify-content:center;align-items:flex-start;padding-left:2px}
+  .rowlab b{color:var(--ink);font-size:.82rem;text-transform:uppercase;letter-spacing:.04em}
+  .cell{
+    background:var(--card);border:1px solid var(--line);border-radius:var(--r);
+    min-height:78px;padding:7px;cursor:pointer;display:flex;flex-direction:column;gap:5px;
+    transition:border-color .12s,box-shadow .12s;
+  }
+  .cell:hover{border-color:var(--ink);box-shadow:0 1px 0 var(--line-hard)}
+  .cell .cov{display:flex;align-items:center;justify-content:space-between;font-family:var(--mono);font-size:.7rem;color:var(--muted)}
+  .cell .cov .short{color:var(--flag);font-weight:700}
+  .cell .cov .full{color:var(--ok);font-weight:700}
+  .chips{display:flex;flex-wrap:wrap;gap:3px}
+  .chip{font-family:var(--mono);font-size:.66rem;font-weight:600;padding:2px 5px;border-radius:5px;white-space:nowrap;line-height:1.3}
+  .chip.foh{background:var(--foh-wash);color:#8a5320}
+  .chip.boh{background:var(--boh-wash);color:#2c5052}
+  .chip.gap{background:var(--flag-wash);color:var(--flag);border:1px dashed var(--flag)}
+
+  /* ---- drawer ---- */
+  .scrim{position:fixed;inset:0;background:rgba(20,24,22,.4);opacity:0;pointer-events:none;transition:opacity .16s;z-index:40}
+  .scrim.on{opacity:1;pointer-events:auto}
+  .drawer{
+    position:fixed;top:0;right:0;height:100%;width:min(440px,100%);background:var(--paper);
+    border-left:2px solid var(--ink);transform:translateX(100%);transition:transform .2s;z-index:50;
+    display:flex;flex-direction:column;
+  }
+  .drawer.on{transform:translateX(0)}
+  .drawer .dh{padding:18px 20px;border-bottom:1px solid var(--line);display:flex;align-items:flex-start;gap:10px}
+  .drawer .dh h3{font-family:var(--disp);margin:0;font-size:1.2rem;font-weight:700}
+  .drawer .dh .sub{font-family:var(--mono);font-size:.76rem;color:var(--muted);margin-top:2px}
+  .drawer .dh .x{margin-left:auto;font:inherit;font-size:1.3rem;background:none;border:0;cursor:pointer;color:var(--muted);line-height:1}
+  .drawer .db{padding:14px 20px;overflow:auto;flex:1}
+  .zone-h{font-family:var(--mono);font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;margin:16px 0 8px;display:flex;align-items:center;gap:8px}
+  .zone-h .tag{width:9px;height:9px;border-radius:2px}
+  .zone-h.foh .tag{background:var(--foh)} .zone-h.foh{color:#8a5320}
+  .zone-h.boh .tag{background:var(--boh)} .zone-h.boh{color:#2c5052}
+  .slot{border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-bottom:7px;background:var(--card)}
+  .slot .slot-top{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:.78rem}
+  .slot .rolecode{font-weight:700}
+  .slot .need{color:var(--muted);margin-left:auto}
+  .slot .need.short{color:var(--flag)}
+  .assigned{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px}
+  .pill{font-family:var(--body);font-size:.82rem;padding:3px 8px;border-radius:20px;border:1px solid var(--line-hard);background:var(--paper);cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+  .pill:hover{border-color:var(--flag);color:var(--flag)}
+  .pill .rm{font-family:var(--mono);opacity:.5}
+  .emptyslot{font-family:var(--mono);font-size:.72rem;color:var(--flag);margin-top:6px;letter-spacing:.04em}
+  .addrow{margin-top:8px}
+  .addrow select{font:inherit;font-size:.82rem;padding:5px 8px;border:1px solid var(--line-hard);border-radius:7px;background:var(--paper);color:var(--ink);width:100%}
+  .drawer .df{padding:14px 20px;border-top:1px solid var(--line);font-family:var(--mono);font-size:.82rem;display:flex;justify-content:space-between;align-items:center}
+  .drawer .df b{font-size:1.05rem}
+
+  /* ---- staff tab ---- */
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:18px 20px;margin-top:16px}
+  .staff-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px;margin-top:14px}
+  .scard{border:1px solid var(--line);border-radius:9px;padding:12px 14px;background:var(--paper);display:flex;align-items:center;gap:10px}
+  .scard .zbar{width:5px;align-self:stretch;border-radius:3px}
+  .scard.foh .zbar{background:var(--foh)} .scard.boh .zbar{background:var(--boh)}
+  .scard .who{flex:1;min-width:0}
+  .scard .nm{font-weight:600}
+  .scard .meta{font-family:var(--mono);font-size:.72rem;color:var(--muted)}
+  .scard .del{font:inherit;background:none;border:0;color:var(--muted);cursor:pointer;font-size:1rem}
+  .scard .del:hover{color:var(--flag)}
+  .form-row{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:6px}
+  .field{display:flex;flex-direction:column;gap:3px}
+  .field label{font-family:var(--mono);font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+  .field input,.field select{font:inherit;font-size:.88rem;padding:7px 9px;border:1px solid var(--line-hard);border-radius:7px;background:var(--paper);color:var(--ink)}
+  .field.name input{width:170px}
+  .field.rate input{width:88px}
+  .btn{font:inherit;font-weight:600;font-size:.88rem;padding:8px 16px;border-radius:8px;border:1px solid var(--ink);background:var(--ink);color:var(--paper);cursor:pointer}
+  .btn:hover{opacity:.9}
+  .btn.ghost{background:none;color:var(--ink)}
+  .btn.ghost:hover{background:var(--card);opacity:1}
+
+  /* ---- empty state ---- */
+  .empty{text-align:center;padding:56px 20px;color:var(--muted)}
+  .empty h3{font-family:var(--disp);color:var(--ink);font-size:1.3rem;margin:0 0 6px}
+  .empty p{max-width:420px;margin:0 auto 18px}
+
+  /* ---- orders stub ---- */
+  .stub{border:2px dashed var(--line-hard);border-radius:14px;padding:48px 24px;text-align:center;margin-top:20px;background:var(--card)}
+  .stub .tkt{font-family:var(--mono);font-size:.72rem;color:var(--foh);letter-spacing:.1em;text-transform:uppercase}
+  .stub h3{font-family:var(--disp);font-size:1.5rem;margin:8px 0 6px}
+  .stub p{color:var(--muted);max-width:480px;margin:0 auto}
+
+  .legend{display:flex;gap:16px;flex-wrap:wrap;font-family:var(--mono);font-size:.72rem;color:var(--muted);margin-top:12px;align-items:center}
+  .legend .k{display:inline-flex;align-items:center;gap:6px}
+  .legend .sw{width:11px;height:11px;border-radius:3px}
+  .legend .sw.foh{background:var(--foh)} .legend .sw.boh{background:var(--boh)} .legend .sw.gap{border:1px dashed var(--flag);background:var(--flag-wash)}
+
+  footer{max-width:1180px;margin:40px auto 0;padding:16px 20px;border-top:1px solid var(--line);font-family:var(--mono);font-size:.72rem;color:var(--muted);display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px}
+
+  @media (max-width:820px){
+    .grid{grid-template-columns:1fr;gap:10px}
+    .gh{display:none}
+    .rowlab{display:none}
+    .cell{min-height:auto}
+    .daygroup{border-top:1px solid var(--line-hard);padding-top:8px}
+    .daygroup .dgh{font-family:var(--mono);font-weight:700;font-size:.85rem;margin:4px 0}
+  }
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <div class="brand">
+      <span class="wordmark">The<span class="sep">·</span>House</span>
+      <button class="rest-name" id="restBtn" title="Rename your spot">▮ set restaurant</button>
+    </div>
+    <nav class="tabs" id="tabs">
+      <button data-tab="schedule" class="on">Schedule</button>
+      <button data-tab="staff">Crew</button>
+      <button data-tab="orders">Orders</button>
+    </nav>
+  </div>
+</header>
+
+<div class="wrap" id="view"></div>
+
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer" aria-hidden="true"></aside>
+
+<footer>
+  <span>The House · v0.1 — where back of house meets front of house</span>
+  <span id="foot-count"></span>
+</footer>
+
+<script>
+"use strict";
+
+/* ---------- domain ---------- */
+const ROLES = {
+  // FOH — the dining room
+  server:  {label:"Server",    code:"SRV", zone:"foh"},
+  host:    {label:"Host",      code:"HST", zone:"foh"},
+  busser:  {label:"Busser",    code:"BUS", zone:"foh"},
+  bar:     {label:"Bartender", code:"BAR", zone:"foh"},
+  expo:    {label:"Expo",      code:"EXP", zone:"foh"},
+  // BOH — the line
+  chef:    {label:"Chef",      code:"CHF", zone:"boh"},
+  grill:   {label:"Grill",     code:"GRL", zone:"boh"},
+  line:    {label:"Line cook", code:"LIN", zone:"boh"},
+  prep:    {label:"Prep",      code:"PRP", zone:"boh"},
+  dish:    {label:"Dish",      code:"DSH", zone:"boh"},
+};
+const roleOrder = Object.keys(ROLES);
+
+const BLOCKS = {
+  open:  {label:"Open",  time:"8a–2p",  hours:6},
+  mid:   {label:"Mid",   time:"11a–5p", hours:6},
+  close: {label:"Close", time:"4p–12a", hours:8},
+};
+const blockOrder = ["open","mid","close"];
+
+// default coverage requirement: block -> role -> count needed
+const DEFAULT_REQ = {
+  open:  {host:1, server:1, prep:1, line:1},
+  mid:   {host:1, server:2, busser:1, line:2, prep:1, dish:1},
+  close: {host:1, server:3, busser:1, bar:1, expo:1, chef:1, grill:1, line:2, dish:1},
+};
+
+const DAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+
+/* ---------- state ---------- */
+const KEY = "the-house:v1";
+let state = load();
+
+function blankState(){
+  return { restaurant:"", weekStart: mondayISO(new Date()), staff:[], schedule:{}, req: clone(DEFAULT_REQ) };
+}
+function load(){
+  try{
+    const raw = localStorage.getItem(KEY);
+    if(!raw) return blankState();
+    const s = JSON.parse(raw);
+    if(!s.req) s.req = clone(DEFAULT_REQ);
+    if(!s.schedule) s.schedule = {};
+    if(!s.staff) s.staff = [];
+    if(!s.weekStart) s.weekStart = mondayISO(new Date());
+    return s;
+  }catch(e){ return blankState(); }
+}
+function save(){
+  try{ localStorage.setItem(KEY, JSON.stringify(state)); }
+  catch(e){ /* storage full or blocked — app still works this session */ }
+}
+function clone(o){ return JSON.parse(JSON.stringify(o)); }
+
+/* ---------- dates ---------- */
+function mondayISO(d){
+  const x = new Date(d);
+  const day = (x.getDay()+6)%7;       // Mon=0
+  x.setDate(x.getDate()-day);
+  x.setHours(0,0,0,0);
+  return x.toISOString().slice(0,10);
+}
+function addDaysISO(iso, n){
+  const x = new Date(iso+"T00:00:00");
+  x.setDate(x.getDate()+n);
+  return x.toISOString().slice(0,10);
+}
+function fmtShort(iso){
+  const x = new Date(iso+"T00:00:00");
+  return (x.getMonth()+1)+"/"+x.getDate();
+}
+function weekKey(){ return state.weekStart; }
+
+/* ---------- schedule access ---------- */
+function shiftCell(dayIdx, block){
+  const wk = state.schedule[weekKey()] || (state.schedule[weekKey()]={});
+  const d  = wk[dayIdx] || (wk[dayIdx]={});
+  if(!d[block]) d[block] = [];
+  return d[block];
+}
+function isAssigned(dayIdx, block, staffId){
+  return shiftCell(dayIdx, block).includes(staffId);
+}
+function toggleAssign(dayIdx, block, staffId){
+  const cell = shiftCell(dayIdx, block);
+  const i = cell.indexOf(staffId);
+  if(i>=0) cell.splice(i,1); else cell.push(staffId);
+  save();
+}
+function staffById(id){ return state.staff.find(s=>s.id===id); }
+
+/* coverage for a shift: filled per role, gaps, cost */
+function coverage(dayIdx, block){
+  const req = state.req[block] || {};
+  const cell = shiftCell(dayIdx, block);
+  const byRole = {};
+  cell.forEach(id=>{
+    const s = staffById(id); if(!s) return;
+    (byRole[s.role] = byRole[s.role]||[]).push(s);
+  });
+  let requiredTotal=0, shortTotal=0;
+  const rows = roleOrder
+    .filter(r => req[r] || (byRole[r]&&byRole[r].length))
+    .map(r=>{
+      const need = req[r]||0;
+      const have = (byRole[r]||[]).length;
+      requiredTotal += need;
+      const short = Math.max(0, need-have);
+      shortTotal += short;
+      return {role:r, need, have, short, people:byRole[r]||[]};
+    });
+  const cost = cell.reduce((sum,id)=>{
+    const s=staffById(id); return sum + (s? (s.rate||0)*BLOCKS[block].hours : 0);
+  },0);
+  return {rows, requiredTotal, shortTotal, filled:cell.length, cost};
+}
+function dayCost(dayIdx){ return blockOrder.reduce((t,b)=>t+coverage(dayIdx,b).cost,0); }
+function weekCost(){ let t=0; for(let d=0;d<7;d++) t+=dayCost(d); return t; }
+function weekShort(){ let t=0; for(let d=0;d<7;d++) blockOrder.forEach(b=>t+=coverage(d,b).shortTotal); return t; }
+function money(n){ return "$"+Math.round(n).toLocaleString(); }
+
+/* ---------- render ---------- */
+let tab = "schedule";
+const view = document.getElementById("view");
+
+function render(){
+  document.querySelectorAll("#tabs button").forEach(b=>b.classList.toggle("on", b.dataset.tab===tab));
+  // orders dot never; schedule dot if short this week
+  const schedBtn = document.querySelector('#tabs button[data-tab="schedule"]');
+  schedBtn.querySelector(".dot")?.remove();
+  if(weekShort()>0){ const d=document.createElement("span"); d.className="dot"; d.title="uncovered stations this week"; schedBtn.appendChild(d); }
+  document.getElementById("restBtn").textContent = state.restaurant ? "▮ "+state.restaurant : "▮ set restaurant";
+  document.getElementById("foot-count").textContent = state.staff.length + " on crew";
+  if(tab==="schedule") renderSchedule();
+  else if(tab==="staff") renderStaff();
+  else renderOrders();
+}
+
+function renderSchedule(){
+  if(state.staff.length===0){
+    view.innerHTML = emptyCrew();
+    return;
+  }
+  const ws = weekKey();
+  const short = weekShort();
+  let h = `
+  <div class="weekstrip">
+    <button class="navbtn" id="prevW" title="Previous week">‹</button>
+    <button class="navbtn" id="nextW" title="Next week">›</button>
+    <div>
+      <h2>Week of ${fmtShort(ws)}</h2>
+      <div class="range">${fmtShort(ws)} – ${fmtShort(addDaysISO(ws,6))} · Mon→Sun</div>
+    </div>
+    <div class="weeklabor">
+      projected labor<br><b>${money(weekCost())}</b>
+      ${short>0? `<br><span style="color:var(--flag)">${short} station${short>1?"s":""} short</span>` : `<br><span style="color:var(--ok)">fully covered</span>`}
+    </div>
+  </div>
+  <div class="grid" id="grid">
+    <div></div>`;
+  for(let d=0; d<7; d++){
+    h += `<div class="gh"><span class="day">${DAYS[d]}</span>${fmtShort(addDaysISO(ws,d))}</div>`;
+  }
+  blockOrder.forEach(block=>{
+    h += `<div class="rowlab"><b>${BLOCKS[block].label}</b>${BLOCKS[block].time}</div>`;
+    for(let d=0; d<7; d++){
+      h += cellHTML(d, block);
+    }
+  });
+  h += `</div>
+  <div class="legend">
+    <span class="k"><span class="sw foh"></span> Front of house</span>
+    <span class="k"><span class="sw boh"></span> Back of house</span>
+    <span class="k"><span class="sw gap"></span> 86'd — station unfilled</span>
+    <span class="k" style="margin-left:auto">click any shift to assign the crew</span>
+  </div>`;
+  view.innerHTML = h;
+
+  document.getElementById("prevW").onclick = ()=>{ state.weekStart = addDaysISO(ws,-7); save(); render(); };
+  document.getElementById("nextW").onclick = ()=>{ state.weekStart = addDaysISO(ws, 7); save(); render(); };
+  document.querySelectorAll(".cell").forEach(c=>{
+    c.onclick = ()=> openShift(+c.dataset.day, c.dataset.block);
+  });
+}
+
+function cellHTML(d, block){
+  const cov = coverage(d, block);
+  let chips = "";
+  cov.rows.forEach(r=>{
+    r.people.forEach(p=>{
+      chips += `<span class="chip ${ROLES[r.role].zone}">${lastFirst(p.name)}</span>`;
+    });
+    for(let i=0;i<r.short;i++){
+      chips += `<span class="chip gap">${ROLES[r.role].code} 86</span>`;
+    }
+  });
+  const covLabel = cov.shortTotal>0
+    ? `<span class="short">${cov.filled}/${cov.filled+cov.shortTotal} ▾</span>`
+    : `<span class="full">${cov.filled} set ✓</span>`;
+  return `<div class="cell" data-day="${d}" data-block="${block}">
+    <div class="cov">${covLabel}<span>${cov.cost?money(cov.cost):""}</span></div>
+    <div class="chips">${chips||'<span style="color:var(--muted);font-family:var(--mono);font-size:.68rem">—</span>'}</div>
+  </div>`;
+}
+function lastFirst(name){
+  const p = name.trim().split(/\s+/);
+  return p.length>1 ? p[0].charAt(0)+". "+p[p.length-1] : name;
+}
+
+/* ---------- drawer: assign a shift ---------- */
+const drawer = document.getElementById("drawer");
+const scrim  = document.getElementById("scrim");
+let openCtx = null;
+
+function openShift(d, block){
+  openCtx = {d, block};
+  drawer.innerHTML = drawerHTML(d, block);
+  drawer.classList.add("on"); drawer.setAttribute("aria-hidden","false");
+  scrim.classList.add("on");
+  wireDrawer();
+}
+function closeDrawer(){
+  drawer.classList.remove("on"); drawer.setAttribute("aria-hidden","true");
+  scrim.classList.remove("on"); openCtx=null; render();
+}
+scrim.onclick = closeDrawer;
+
+function drawerHTML(d, block){
+  const cov = coverage(d, block);
+  const dateISO = addDaysISO(weekKey(), d);
+  const zones = {foh:[], boh:[]};
+  cov.rows.forEach(r=> zones[ROLES[r.role].zone].push(r));
+  // also surface required roles that are entirely empty (need>0, none assigned) already included in rows
+  const zoneBlock = (zoneKey, title)=>{
+    const rows = zones[zoneKey];
+    if(!rows.length) return "";
+    let s = `<div class="zone-h ${zoneKey}"><span class="tag"></span>${title}</div>`;
+    rows.forEach(r=>{
+      const roster = state.staff.filter(p=>p.role===r.role && !isAssigned(d,block,p.id));
+      s += `<div class="slot">
+        <div class="slot-top">
+          <span class="rolecode">${ROLES[r.role].code}</span> ${ROLES[r.role].label}
+          <span class="need ${r.short?'short':''}">${r.have}/${r.need||r.have}${r.short?` · ${r.short} short`:''}</span>
+        </div>
+        <div class="assigned">
+          ${r.people.map(p=>`<span class="pill" data-rm="${p.id}">${p.name} <span class="rm">✕</span></span>`).join("")}
+        </div>
+        ${r.short? `<div class="emptyslot">${"◻ 86'd ".repeat(r.short).trim()}</div>`:""}
+        ${roster.length? `<div class="addrow"><select data-add="${r.role}">
+            <option value="">+ add ${ROLES[r.role].label.toLowerCase()}…</option>
+            ${roster.map(p=>`<option value="${p.id}">${p.name}${p.rate?` · $${p.rate}/h`:''}</option>`).join("")}
+          </select></div>` : (r.short?`<div class="addrow"><select disabled><option>no free ${ROLES[r.role].label.toLowerCase()} on crew</option></select></div>`:"")}
+      </div>`;
+    });
+    return s;
+  };
+  return `
+    <div class="dh">
+      <div>
+        <h3>${DAYS[d]} · ${BLOCKS[block].label}</h3>
+        <div class="sub">${fmtShort(dateISO)} · ${BLOCKS[block].time} · ${BLOCKS[block].hours}h</div>
+      </div>
+      <button class="x" id="dx" aria-label="Close">✕</button>
+    </div>
+    <div class="db">
+      ${zoneBlock("boh","Back of house")}
+      ${zoneBlock("foh","Front of house")}
+      <div style="margin-top:18px;font-family:var(--mono);font-size:.72rem;color:var(--muted)">
+        Coverage rules are the defaults for ${BLOCKS[block].label.toLowerCase()} shifts. Editable per-shift is on the roadmap.
+      </div>
+    </div>
+    <div class="df">
+      <span>${cov.shortTotal>0? `<span style="color:var(--flag)">${cov.shortTotal} short</span>`:`<span style="color:var(--ok)">fully covered</span>`} · ${cov.filled} scheduled</span>
+      <span>labor <b>${money(cov.cost)}</b></span>
+    </div>`;
+}
+function wireDrawer(){
+  document.getElementById("dx").onclick = closeDrawer;
+  const {d, block} = openCtx;
+  drawer.querySelectorAll("[data-add]").forEach(sel=>{
+    sel.onchange = ()=>{
+      if(sel.value){ toggleAssign(d, block, sel.value); openShift(d, block); }
+    };
+  });
+  drawer.querySelectorAll("[data-rm]").forEach(p=>{
+    p.onclick = ()=>{ toggleAssign(d, block, p.dataset.rm); openShift(d, block); };
+  });
+}
+
+/* ---------- crew tab ---------- */
+function renderStaff(){
+  const foh = state.staff.filter(s=>ROLES[s.role]?.zone==="foh");
+  const boh = state.staff.filter(s=>ROLES[s.role]?.zone==="boh");
+  view.innerHTML = `
+    <div class="panel">
+      <h2 style="font-family:var(--disp);margin:0 0 2px">Add to the crew</h2>
+      <div style="font-family:var(--mono);font-size:.76rem;color:var(--muted)">name · station · pay rate — rate drives the labor projection</div>
+      <div class="form-row">
+        <div class="field name"><label>Name</label><input id="f-name" placeholder="Alex Rivera"></div>
+        <div class="field"><label>Station</label>
+          <select id="f-role">
+            <optgroup label="Back of house">${roleOrder.filter(r=>ROLES[r].zone==="boh").map(r=>`<option value="${r}">${ROLES[r].label}</option>`).join("")}</optgroup>
+            <optgroup label="Front of house">${roleOrder.filter(r=>ROLES[r].zone==="foh").map(r=>`<option value="${r}">${ROLES[r].label}</option>`).join("")}</optgroup>
+          </select>
+        </div>
+        <div class="field rate"><label>$ / hour</label><input id="f-rate" type="number" min="0" step="0.5" placeholder="18"></div>
+        <button class="btn" id="f-add">Add</button>
+      </div>
+    </div>
+
+    ${state.staff.length===0 ? `<div class="empty"><p>No crew yet. Add your first cook or server above — or drop in a sample crew to see the board work.</p><button class="btn ghost" id="sample">Load a sample crew</button></div>` : ""}
+
+    ${boh.length? `<div class="zone-h boh" style="margin-top:22px"><span class="tag"></span>Back of house · ${boh.length}</div>
+      <div class="staff-list">${boh.map(scard).join("")}</div>`:""}
+    ${foh.length? `<div class="zone-h foh" style="margin-top:22px"><span class="tag"></span>Front of house · ${foh.length}</div>
+      <div class="staff-list">${foh.map(scard).join("")}</div>`:""}
+  `;
+  document.getElementById("f-add").onclick = addStaff;
+  document.getElementById("f-name").addEventListener("keydown",e=>{ if(e.key==="Enter") addStaff(); });
+  const samp = document.getElementById("sample");
+  if(samp) samp.onclick = loadSample;
+  view.querySelectorAll("[data-del]").forEach(b=> b.onclick=()=>delStaff(b.dataset.del));
+}
+function scard(s){
+  return `<div class="scard ${ROLES[s.role].zone}">
+    <span class="zbar"></span>
+    <div class="who"><div class="nm">${s.name}</div><div class="meta">${ROLES[s.role].code} · ${ROLES[s.role].label}${s.rate?` · $${s.rate}/h`:""}</div></div>
+    <button class="del" data-del="${s.id}" title="Remove">✕</button>
+  </div>`;
+}
+function addStaff(){
+  const name = document.getElementById("f-name").value.trim();
+  const role = document.getElementById("f-role").value;
+  const rate = parseFloat(document.getElementById("f-rate").value)||0;
+  if(!name) return;
+  state.staff.push({id:"s"+Date.now()+Math.floor(Math.random()*99), name, role, rate});
+  save(); renderStaff();
+}
+function delStaff(id){
+  state.staff = state.staff.filter(s=>s.id!==id);
+  // pull them off any shifts
+  Object.values(state.schedule).forEach(wk=>Object.values(wk).forEach(day=>Object.keys(day).forEach(b=>{
+    day[b] = day[b].filter(x=>x!==id);
+  })));
+  save(); renderStaff();
+}
+function loadSample(){
+  const S = [
+    ["Marco Diaz","chef",34],["Priya Shah","grill",24],["Devon Lee","line",21],["Sam Okafor","line",20],
+    ["Rosa Nunez","prep",18],["Tariq Bell","dish",16],
+    ["Jamie Cole","host",18],["Alex Rivera","server",15],["Nina Park","server",15],["Chris Tran","server",15],
+    ["Bianca Ford","busser",14],["Leo Marsh","bar",22],["Quinn Ada","expo",20],
+  ];
+  S.forEach(([name,role,rate],i)=> state.staff.push({id:"s"+Date.now()+i, name, role, rate}));
+  save(); renderStaff();
+}
+
+/* ---------- orders tab (Toast layer mount point) ---------- */
+function renderOrders(){
+  view.innerHTML = `
+    <div class="stub">
+      <div class="tkt">— order up · coming soon —</div>
+      <h3>The Orders layer mounts here</h3>
+      <p>This is where our take on Toast bolts on: tickets, the pass, checks, and payments — all riding on the crew and shifts you build in Schedule. A check knows which server is on, the kitchen display knows who's on the line. Same data spine, new surface.</p>
+    </div>`;
+}
+
+/* ---------- rename ---------- */
+document.getElementById("restBtn").onclick = ()=>{
+  const n = prompt("Name your restaurant", state.restaurant||"");
+  if(n!==null){ state.restaurant = n.trim(); save(); render(); }
+};
+
+/* ---------- tabs ---------- */
+document.getElementById("tabs").addEventListener("click", e=>{
+  const b = e.target.closest("button[data-tab]"); if(!b) return;
+  tab = b.dataset.tab; render();
+});
+document.addEventListener("keydown", e=>{ if(e.key==="Escape" && openCtx) closeDrawer(); });
+
+function emptyCrew(){
+  return `<div class="empty">
+    <h3>Build your crew first</h3>
+    <p>The schedule is built on people. Head to <b>Crew</b> to add your cooks and servers, then come back and the board fills in — coverage gaps and labor cost and all.</p>
+    <button class="btn" onclick="document.querySelector('#tabs button[data-tab=&quot;staff&quot;]').click()">Go to Crew</button>
+  </div>`;
+}
+
+render();
+</script>
+</body>
+</html>
