@@ -141,6 +141,38 @@
   .hoursrow input[type=time]:focus-visible{outline:2px solid var(--boh);outline-offset:1px;border-color:var(--boh)}
   .hoursrow .thru{color:var(--line-hard)}
 
+  /* ---- conflict + availability ---- */
+  .chip.cbad{outline:1.5px solid var(--flag);color:var(--flag);background:var(--flag-wash)}
+  .chip.cwarn{outline:1.5px dashed var(--foh)}
+  .pill.pbad{border-color:var(--flag);color:var(--flag)}
+  .pill.pwarn{border-color:var(--foh);color:#8a5320}
+  .pill .pw{font-family:var(--mono);font-size:.66rem;opacity:.85}
+  .scard{flex-direction:column;align-items:stretch;gap:0;padding:0;overflow:hidden}
+  .scard .srow{display:flex;align-items:center;gap:10px;padding:12px 14px}
+  .scard .shrs{font-family:var(--mono);font-size:.62rem;color:var(--muted);text-align:right;line-height:1.2}
+  .scard .shrs b{font-family:var(--disp);font-size:1rem;color:var(--ink);display:block}
+  .scard .shrs b.ot{color:var(--flag)}
+  .sflag{font-family:var(--mono);font-size:.7rem;padding:5px 14px;letter-spacing:.03em}
+  .sflag.bad{background:var(--flag-wash);color:var(--flag)}
+  .sflag.warn{background:var(--foh-wash);color:#8a5320}
+  .availbtn{font:inherit;font-family:var(--mono);font-size:.7rem;text-align:left;width:100%;background:none;border:0;border-top:1px solid var(--line);padding:7px 14px;color:var(--muted);cursor:pointer;letter-spacing:.04em}
+  .availbtn:hover{background:var(--card);color:var(--ink)}
+  .availbox{padding:4px 14px 14px;border-top:1px solid var(--line);background:var(--card)}
+  .availhint{font-family:var(--mono);font-size:.64rem;color:var(--muted);padding:7px 0}
+  .availgrid{display:grid;grid-template-columns:42px repeat(7,1fr);gap:3px;align-items:center}
+  .availgrid .ah{font-family:var(--mono);font-size:.62rem;color:var(--muted);text-align:center}
+  .availgrid .al{font-family:var(--mono);font-size:.62rem;color:var(--muted)}
+  .av{height:24px;border:1px solid var(--line);border-radius:5px;background:var(--paper);cursor:pointer;font-family:var(--mono);font-size:.66rem;color:var(--flag);padding:0}
+  .av:hover{border-color:var(--ink)}
+  .av.off{background:var(--flag-wash);border-color:var(--flag)}
+  .tobox{margin-top:10px;border-top:1px dashed var(--line);padding-top:9px}
+  .tolab{font-family:var(--mono);font-size:.66rem;color:var(--muted);display:flex;align-items:center;gap:7px}
+  .tolab input{font:inherit;font-family:var(--mono);padding:4px 6px;border:1px solid var(--line-hard);border-radius:6px;background:var(--paper);color:var(--ink)}
+  .tochips{display:flex;flex-wrap:wrap;gap:4px;margin-top:7px}
+  .tochip{font-family:var(--mono);font-size:.66rem;background:var(--flag-wash);color:var(--flag);border:1px solid var(--flag);border-radius:20px;padding:2px 8px;cursor:pointer}
+  .tochip .rm{opacity:.6}
+  .tonone{font-family:var(--mono);font-size:.66rem;color:var(--muted)}
+
   /* ---- staff tab ---- */
   .panel{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:18px 20px;margin-top:16px}
   .staff-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px;margin-top:14px}
@@ -215,7 +247,7 @@
 <aside class="drawer" id="drawer" aria-hidden="true"></aside>
 
 <footer>
-  <span>The House · v0.2 — where back of house meets front of house</span>
+  <span>The House · v0.3 — where back of house meets front of house</span>
   <span id="foot-count"></span>
 </footer>
 
@@ -269,7 +301,7 @@ const KEY = "the-house:v1";
 let state = load();
 
 function blankState(){
-  return { restaurant:"", weekStart: mondayISO(new Date()), staff:[], schedule:{}, req: clone(DEFAULT_REQ), blocks: defaultBlocks() };
+  return { restaurant:"", weekStart: mondayISO(new Date()), staff:[], schedule:{}, req: clone(DEFAULT_REQ), blocks: defaultBlocks(), otHours:40, restHours:10 };
 }
 function load(){
   try{
@@ -278,6 +310,9 @@ function load(){
     const s = JSON.parse(raw);
     if(!s.req) s.req = clone(DEFAULT_REQ);
     if(!s.blocks) s.blocks = defaultBlocks();
+    if(typeof s.otHours !== "number") s.otHours = 40;
+    if(typeof s.restHours !== "number") s.restHours = 10;
+    (s.staff||[]).forEach(p=>{ if(!Array.isArray(p.off)) p.off=[]; if(!Array.isArray(p.timeoff)) p.timeoff=[]; });
     if(!s.schedule) s.schedule = {};
     if(!s.staff) s.staff = [];
     if(!s.weekStart) s.weekStart = mondayISO(new Date());
@@ -359,6 +394,7 @@ function money(n){ return "$"+Math.round(n).toLocaleString(); }
 
 /* ---------- render ---------- */
 let tab = "schedule";
+let expandedStaff = null;
 const view = document.getElementById("view");
 
 function render(){
@@ -393,6 +429,7 @@ function renderSchedule(){
     <div class="weeklabor">
       projected labor<br><b>${money(weekCost())}</b>
       ${short>0? `<br><span style="color:var(--flag)">${short} station${short>1?"s":""} short</span>` : `<br><span style="color:var(--ok)">fully covered</span>`}
+      ${weekIssueCount()>0? `<br><span style="color:var(--flag)">${weekIssueCount()} crew conflict${weekIssueCount()>1?"s":""}</span>`:""}
     </div>
   </div>
   <div class="grid" id="grid">
@@ -427,7 +464,9 @@ function cellHTML(d, block){
   let chips = "";
   cov.rows.forEach(r=>{
     r.people.forEach(p=>{
-      chips += `<span class="chip ${ROLES[r.role].zone}">${lastFirst(p.name)}</span>`;
+      const bad = isOff(p,d,block) || (personFlag(p.id)||{}).cls==="bad";
+      const warn = !bad && personFlag(p.id);
+      chips += `<span class="chip ${ROLES[r.role].zone}${bad?" cbad":(warn?" cwarn":"")}" title="${bad?"conflict":(warn?personFlag(p.id).txt:p.name)}">${bad||warn?"⚠ ":""}${lastFirst(p.name)}</span>`;
     });
     for(let i=0;i<r.short;i++){
       chips += `<span class="chip gap">${ROLES[r.role].code} 86</span>`;
@@ -475,19 +514,25 @@ function drawerHTML(d, block){
     if(!rows.length) return "";
     let s = `<div class="zone-h ${zoneKey}"><span class="tag"></span>${title}</div>`;
     rows.forEach(r=>{
-      const roster = state.staff.filter(p=>p.role===r.role && !isAssigned(d,block,p.id));
+      const roster = state.staff.filter(p=>p.role===r.role && !isAssigned(d,block,p.id))
+        .sort((a,b)=> (isOff(a,d,block)?1:0) - (isOff(b,d,block)?1:0));
       s += `<div class="slot">
         <div class="slot-top">
           <span class="rolecode">${ROLES[r.role].code}</span> ${ROLES[r.role].label}
           <span class="need ${r.short?'short':''}">${r.have}/${r.need||r.have}${r.short?` · ${r.short} short`:''}</span>
         </div>
         <div class="assigned">
-          ${r.people.map(p=>`<span class="pill" data-rm="${p.id}">${p.name} <span class="rm">✕</span></span>`).join("")}
+          ${r.people.map(p=>{
+            const off = isOff(p,d,block);
+            const fl = personFlag(p.id);
+            const warn = off ? offReason(p,d,block) : (fl?fl.txt:"");
+            return `<span class="pill ${off||(fl&&fl.cls==="bad")?"pbad":(fl?"pwarn":"")}" data-rm="${p.id}" title="${warn||"remove"}">${p.name}${warn?` <span class="pw">⚠ ${warn}</span>`:""} <span class="rm">✕</span></span>`;
+          }).join("")}
         </div>
         ${r.short? `<div class="emptyslot">${"◻ 86'd ".repeat(r.short).trim()}</div>`:""}
         ${roster.length? `<div class="addrow"><select data-add="${r.role}">
             <option value="">+ add ${ROLES[r.role].label.toLowerCase()}…</option>
-            ${roster.map(p=>`<option value="${p.id}">${p.name}${p.rate?` · $${p.rate}/h`:''}</option>`).join("")}
+            ${roster.map(p=>`<option value="${p.id}">${isOff(p,d,block)?"⚠ ":""}${p.name}${p.rate?` · $${p.rate}/h`:''}${isOff(p,d,block)?` · ${offReason(p,d,block)}`:''}</option>`).join("")}
           </select></div>` : (r.short?`<div class="addrow"><select disabled><option>no free ${ROLES[r.role].label.toLowerCase()} on crew</option></select></div>`:"")}
       </div>`;
     });
@@ -518,7 +563,13 @@ function wireDrawer(){
   const {d, block} = openCtx;
   drawer.querySelectorAll("[data-add]").forEach(sel=>{
     sel.onchange = ()=>{
-      if(sel.value){ toggleAssign(d, block, sel.value); openShift(d, block); }
+      if(!sel.value) return;
+      const p = staffById(sel.value);
+      if(p && isOff(p, d, block) &&
+         !confirm(`${p.name} is marked ${offReason(p,d,block)} for ${DAYS[d]} ${BLOCKS[block].label.toLowerCase()}.\n\nSchedule anyway?`)){
+        sel.value=""; return;
+      }
+      toggleAssign(d, block, sel.value); openShift(d, block);
     };
   });
   drawer.querySelectorAll("[data-rm]").forEach(p=>{
@@ -559,12 +610,65 @@ function renderStaff(){
   const samp = document.getElementById("sample");
   if(samp) samp.onclick = loadSample;
   view.querySelectorAll("[data-del]").forEach(b=> b.onclick=()=>delStaff(b.dataset.del));
+  view.querySelectorAll("[data-exp]").forEach(b=> b.onclick=()=>{
+    expandedStaff = (expandedStaff===b.dataset.exp)? null : b.dataset.exp; renderStaff();
+  });
+  view.querySelectorAll("[data-av]").forEach(b=> b.onclick=()=>{
+    const s = staffById(b.dataset.av); if(!s) return;
+    if(!Array.isArray(s.off)) s.off=[];
+    const key = b.dataset.d+":"+b.dataset.b;
+    const i = s.off.indexOf(key);
+    if(i>=0) s.off.splice(i,1); else s.off.push(key);
+    save(); renderStaff();
+  });
+  view.querySelectorAll("[data-to]").forEach(inp=> inp.onchange=()=>{
+    const s = staffById(inp.dataset.to); if(!s || !inp.value) return;
+    if(!Array.isArray(s.timeoff)) s.timeoff=[];
+    if(!s.timeoff.includes(inp.value)) s.timeoff.push(inp.value);
+    save(); renderStaff();
+  });
+  view.querySelectorAll("[data-tord]").forEach(c=> c.onclick=()=>{
+    const [id,date] = c.dataset.tord.split("|");
+    const s = staffById(id); if(!s) return;
+    s.timeoff = (s.timeoff||[]).filter(x=>x!==date);
+    save(); renderStaff();
+  });
 }
 function scard(s){
-  return `<div class="scard ${ROLES[s.role].zone}">
-    <span class="zbar"></span>
-    <div class="who"><div class="nm">${s.name}</div><div class="meta">${ROLES[s.role].code} · ${ROLES[s.role].label}${s.rate?` · $${s.rate}/h`:""}</div></div>
-    <button class="del" data-del="${s.id}" title="Remove">✕</button>
+  const iss = personIssues(s.id);
+  const fl = personFlag(s.id);
+  const open = expandedStaff===s.id;
+  return `<div class="scard ${ROLES[s.role].zone}${open?" open":""}">
+    <div class="srow">
+      <span class="zbar"></span>
+      <div class="who"><div class="nm">${s.name}</div><div class="meta">${ROLES[s.role].code} · ${ROLES[s.role].label}${s.rate?` · $${s.rate}/h`:""}</div></div>
+      <div class="shrs">
+        <b class="${iss.ot?"ot":""}">${iss.hours?Math.round(iss.hours*10)/10+"h":"—"}</b>
+        <span>this week</span>
+      </div>
+      <button class="del" data-del="${s.id}" title="Remove">✕</button>
+    </div>
+    ${fl?`<div class="sflag ${fl.cls}">⚠ ${fl.txt}</div>`:""}
+    <button class="availbtn" data-exp="${s.id}">${open?"▾":"▸"} availability${(s.off||[]).length||(s.timeoff||[]).length?` · ${(s.off||[]).length+(s.timeoff||[]).length} set`:""}</button>
+    ${open?availEditor(s):""}
+  </div>`;
+}
+function availEditor(s){
+  return `<div class="availbox">
+    <div class="availhint">click a shift to mark it unavailable</div>
+    <div class="availgrid">
+      <div></div>${DAYS.map(d=>`<div class="ah">${d.charAt(0)}</div>`).join("")}
+      ${blockOrder.map(b=>`
+        <div class="al">${BLOCKS[b].label}</div>
+        ${DAYS.map((_,d)=>{
+          const off=(s.off||[]).includes(d+":"+b);
+          return `<button class="av${off?" off":""}" data-av="${s.id}" data-d="${d}" data-b="${b}" title="${DAYS[d]} ${BLOCKS[b].label}">${off?"✕":""}</button>`;
+        }).join("")}`).join("")}
+    </div>
+    <div class="tobox">
+      <label class="tolab">time off <input type="date" data-to="${s.id}"></label>
+      <div class="tochips">${(s.timeoff||[]).sort().map(d=>`<span class="tochip" data-tord="${s.id}|${d}">${fmtShort(d)} <span class="rm">✕</span></span>`).join("")||`<span class="tonone">none booked</span>`}</div>
+    </div>
   </div>`;
 }
 function addStaff(){
@@ -593,6 +697,57 @@ function loadSample(){
   S.forEach(([name,role,rate],i)=> state.staff.push({id:"s"+Date.now()+i, name, role, rate}));
   save(); renderStaff();
 }
+
+/* ---------- availability & person-level checks ---------- */
+// recurring unavailability is keyed "dayIdx:block"; timeoff is a list of ISO dates
+function isOff(s, dayIdx, block){
+  if(!s) return false;
+  if((s.off||[]).includes(dayIdx+":"+block)) return true;
+  return (s.timeoff||[]).includes(addDaysISO(weekKey(), dayIdx));
+}
+function offReason(s, dayIdx, block){
+  if((s.timeoff||[]).includes(addDaysISO(weekKey(), dayIdx))) return "time off";
+  if((s.off||[]).includes(dayIdx+":"+block)) return "unavailable";
+  return "";
+}
+// absolute minutes from the start of the week — makes overlap & rest one comparison
+function shiftSpan(dayIdx, block){
+  const start = dayIdx*1440 + toMin(blkStart(block));
+  return {start, end: start + blockHours(block)*60};
+}
+function personShifts(staffId){
+  const out=[];
+  for(let d=0; d<7; d++) blockOrder.forEach(b=>{
+    if(shiftCell(d,b).includes(staffId)){ const sp=shiftSpan(d,b); out.push({d, block:b, ...sp}); }
+  });
+  return out.sort((a,b)=>a.start-b.start);
+}
+function personHours(staffId){
+  return personShifts(staffId).reduce((t,s)=>t+(s.end-s.start)/60, 0);
+}
+/* one pass finds both: a negative gap is a double-book, a small positive gap is a clopening */
+function personIssues(staffId){
+  const sh = personShifts(staffId);
+  const overlaps=[], shortRest=[];
+  for(let i=1;i<sh.length;i++){
+    const prev=sh[i-1], cur=sh[i];
+    if(cur.start < prev.end) overlaps.push({a:prev, b:cur});
+    else if((cur.start - prev.end) < state.restHours*60) shortRest.push({a:prev, b:cur, gap:(cur.start-prev.end)/60});
+  }
+  const scheduledOff = sh.filter(s=>isOff(staffById(staffId), s.d, s.block));
+  const hours = personHours(staffId);
+  return {overlaps, shortRest, scheduledOff, hours, ot: hours > state.otHours,
+          count: overlaps.length + shortRest.length + scheduledOff.length + (hours>state.otHours?1:0)};
+}
+function personFlag(staffId){
+  const i = personIssues(staffId);
+  if(i.overlaps.length) return {cls:"bad", txt:"double-booked"};
+  if(i.scheduledOff.length) return {cls:"bad", txt:"scheduled while off"};
+  if(i.ot) return {cls:"warn", txt:Math.round(i.hours)+"h · over "+state.otHours};
+  if(i.shortRest.length) return {cls:"warn", txt:"short rest"};
+  return null;
+}
+function weekIssueCount(){ return state.staff.reduce((t,s)=>t+personIssues(s.id).count, 0); }
 
 /* ---------- coverage tab (editable staffing rules) ---------- */
 function renderCoverage(){
@@ -629,7 +784,18 @@ function renderCoverage(){
       <button class="btn ghost" id="reqReset" style="margin-left:auto">Reset to defaults</button>
     </div>
     <div class="covwrap">${blockOrder.map(card).join("")}</div>
+    <div class="panel" style="margin-top:16px">
+      <h2 style="font-family:var(--disp);margin:0 0 2px;font-size:1.1rem">Crew protection</h2>
+      <div style="font-family:var(--mono);font-size:.76rem;color:var(--muted)">thresholds the board warns you against</div>
+      <div class="form-row">
+        <div class="field rate"><label>Overtime after</label><input id="otH" type="number" min="0" step="1" value="${state.otHours}"></div>
+        <div class="field rate"><label>Min rest (h)</label><input id="restH" type="number" min="0" step="1" value="${state.restHours}"></div>
+      </div>
+    </div>
     <div class="legend" style="margin-top:14px"><span class="k">applies to every day of the week · per-day overrides are on the roadmap</span></div>`;
+
+  document.getElementById("otH").onchange = e=>{ let v=parseInt(e.target.value,10); if(isNaN(v)||v<0)v=40; state.otHours=v; e.target.value=v; save(); };
+  document.getElementById("restH").onchange = e=>{ let v=parseInt(e.target.value,10); if(isNaN(v)||v<0)v=10; state.restHours=v; e.target.value=v; save(); };
 
   view.querySelectorAll("input[data-block]").forEach(inp=>{
     inp.onchange = ()=>{
