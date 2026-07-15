@@ -111,6 +111,9 @@
   .cp-row .when{font-family:var(--mono);font-size:.72rem;color:var(--muted);min-width:74px}
   .cp-row .why{font-family:var(--mono);font-size:.72rem;color:var(--flag);margin-left:auto;text-align:right}
   .cp-none{font-family:var(--mono);font-size:.76rem;color:var(--muted);padding:10px 0}
+  .didrow{display:flex;align-items:center;gap:10px;margin-bottom:12px;padding:8px 10px;border:1px dashed var(--line-hard);border-radius:8px;background:var(--card);font-family:var(--mono);font-size:.74rem;color:var(--muted)}
+  .didrow button{font:inherit;font-family:var(--mono);font-size:.74rem;font-weight:700;margin-left:auto;background:none;border:0;padding:0;color:var(--ink);cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+  .didrow button:hover{color:var(--flag)}
   .weeklabor{margin-left:auto;font-family:var(--mono);font-size:.82rem;color:var(--muted);text-align:right}
   .weeklabor b{color:var(--ink);font-size:1rem}
 
@@ -316,7 +319,7 @@
 <aside class="drawer" id="drawer" aria-hidden="true"></aside>
 
 <footer>
-  <span>The House · v0.6 — where back of house meets front of house</span>
+  <span>The House · v0.7 — where back of house meets front of house</span>
   <span id="foot-count"></span>
 </footer>
 
@@ -442,8 +445,12 @@ function isAssigned(dayIdx, block, staffId){
 function toggleAssign(dayIdx, block, staffId, role){
   const cell = shiftCell(dayIdx, block);
   const i = cell.findIndex(x=>x.id===staffId && (role==null || x.role===role));
+  const p = staffById(staffId);
+  const who = p ? p.name.split(" ")[0] : "crew";
+  snapshot((i>=0 ? "removing " : "adding ") + who);   // taken before the write, so undo has somewhere to land
   if(i>=0) cell.splice(i,1); else cell.push({id:staffId, role});
   save();
+  return i>=0 ? "removed" : "added";
 }
 /* cross-training: a person can work any station in .roles; roles[0] is their home station */
 function canWork(s, role){ return !!s && (s.roles||[s.role]).includes(role); }
@@ -671,7 +678,8 @@ const drawer = document.getElementById("drawer");
 const scrim  = document.getElementById("scrim");
 let openCtx = null;
 
-function openShift(d, block){
+function openShift(d, block, keepNotice){
+  if(!keepNotice) justDid = null;
   openCtx = {d, block};
   drawer.innerHTML = drawerHTML(d, block);
   drawer.classList.add("on"); drawer.setAttribute("aria-hidden","false");
@@ -680,7 +688,7 @@ function openShift(d, block){
 }
 function closeDrawer(){
   drawer.classList.remove("on"); drawer.setAttribute("aria-hidden","true");
-  scrim.classList.remove("on"); openCtx=null; render();
+  scrim.classList.remove("on"); openCtx=null; justDid=null; render();
 }
 scrim.onclick = closeDrawer;
 
@@ -728,6 +736,7 @@ function drawerHTML(d, block){
       <button class="x" id="dx" aria-label="Close">✕</button>
     </div>
     <div class="db">
+      ${didNoticeHTML(d, block)}
       ${zoneBlock("boh","Back of house")}
       ${zoneBlock("foh","Front of house")}
       <div style="margin-top:18px;font-family:var(--mono);font-size:.72rem;color:var(--muted)">
@@ -739,8 +748,15 @@ function drawerHTML(d, block){
       <span>labor <b>${money(cov.cost)}</b></span>
     </div>`;
 }
+function didNoticeHTML(d, block){
+  if(!justDid || justDid.d!==d || justDid.block!==block || !undoSnap) return "";
+  return `<div class="didrow"><span>${justDid.what} <b style="color:var(--ink)">${justDid.who}</b></span>
+    <button id="did-undo">↺ undo</button></div>`;
+}
 function wireDrawer(){
   document.getElementById("dx").onclick = closeDrawer;
+  const du = document.getElementById("did-undo");
+  if(du) du.onclick = undoLast;
   const {d, block} = openCtx;
   drawer.querySelectorAll("[data-add]").forEach(sel=>{
     sel.onchange = ()=>{
@@ -750,23 +766,57 @@ function wireDrawer(){
          !confirm(`${p.name} is marked ${offReason(p,d,block)} for ${DAYS[d]} ${BLOCKS[block].label.toLowerCase()}.\n\nSchedule anyway?`)){
         sel.value=""; return;
       }
-      toggleAssign(d, block, sel.value, sel.dataset.add); openShift(d, block);
+      const did = toggleAssign(d, block, sel.value, sel.dataset.add);
+      justDid = {d, block, what: did==="added"?"Added":"Removed", who: p? p.name : "crew"};
+      openShift(d, block, true);
     };
   });
-  drawer.querySelectorAll("[data-rm]").forEach(p=>{
-    p.onclick = ()=>{ toggleAssign(d, block, p.dataset.rm); openShift(d, block); };
+  drawer.querySelectorAll("[data-rm]").forEach(el=>{
+    el.onclick = ()=>{
+      const who = staffById(el.dataset.rm);
+      const did = toggleAssign(d, block, el.dataset.rm);
+      justDid = {d, block, what: did==="removed"?"Removed":"Added", who: who? who.name : "crew"};
+      openShift(d, block, true);
+    };
   });
 }
 
-/* ---------- copy last week ---------- */
-/* one snapshot of the target week, taken right before a bulk write */
+/* ---------- undo ---------- */
+/* One step back, and only one. Every write to the board — a hand edit or a
+   whole copied week — takes a snapshot of the week first, so there is always
+   somewhere to land. Taking a new one drops the old: undo means "the last
+   thing I did", not a history. */
 let undoSnap = null;
+let justDid  = null;   // {d, block, what, who} — for the in-drawer notice
+
+function snapshot(label){
+  undoSnap = {ws: weekKey(), data: clone(state.schedule[weekKey()] || {}), label};
+}
+function undoLast(){
+  if(!undoSnap || undoSnap.ws !== weekKey()) return;
+  state.schedule[undoSnap.ws] = undoSnap.data;
+  undoSnap = null; justDid = null;
+  save();
+  if(openCtx) openShift(openCtx.d, openCtx.block);   // undo from inside the drawer keeps it open
+  else if(document.getElementById("cp-replace")) openCopy();   // copy preview is open — recompute it
+  else render();
+}
+/* ⌘Z / Ctrl+Z, unless the person is typing */
+document.addEventListener("keydown", e=>{
+  if(!(e.key==="z" || e.key==="Z") || !(e.metaKey||e.ctrlKey) || e.shiftKey) return;
+  const t = e.target && e.target.tagName;
+  if(t==="INPUT" || t==="SELECT" || t==="TEXTAREA") return;
+  if(!undoSnap || undoSnap.ws !== weekKey()) return;
+  e.preventDefault(); undoLast();
+});
+
+/* ---------- copy last week ---------- */
 
 function copyControlsHTML(){
   const prev = addDaysISO(weekKey(), -7);
   const srcCount = weekAssignCount(prev);
   const undo = (undoSnap && undoSnap.ws === weekKey())
-    ? `<button class="undochip" id="undoW" title="Put this week back the way it was">↺ undo ${undoSnap.label}</button>` : "";
+    ? `<button class="undochip" id="undoW" title="Put this week back the way it was (⌘Z)">↺ undo ${undoSnap.label}</button>` : "";
   return `${undo}<button class="copybtn" id="copyW" ${srcCount?"":"disabled"} title="${srcCount? "Copy the week of "+fmtShort(prev)+" onto this one" : "Nothing scheduled the week of "+fmtShort(prev)}">⧉ copy last week</button>`;
 }
 function weekAssignCount(wsISO){
@@ -858,7 +908,7 @@ function copyDrawerHTML(plan){
 
 function applyCopy(mode){
   const ws = weekKey(), plan = copyPlan();
-  undoSnap = {ws, data: clone(state.schedule[ws] || {}), label:"copy"};
+  snapshot("copying last week");
   if(mode === "replace") state.schedule[ws] = {};
   plan.moves.forEach(m=>{
     const cell = shiftCell(m.d, m.block);
@@ -867,12 +917,6 @@ function applyCopy(mode){
   });
   save();
   closeDrawer();   // closeDrawer re-renders, which draws the undo chip
-}
-function undoLast(){
-  if(!undoSnap || undoSnap.ws !== weekKey()) return;
-  state.schedule[undoSnap.ws] = undoSnap.data;
-  undoSnap = null;
-  save(); render();
 }
 
 /* ---------- crew tab ---------- */
