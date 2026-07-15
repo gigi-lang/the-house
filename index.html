@@ -73,6 +73,36 @@
   .copybtn:disabled:hover{border-color:var(--line-hard)}
   .undochip{font:inherit;font-family:var(--mono);font-size:.74rem;padding:6px 10px;border-radius:20px;border:1px dashed var(--line-hard);background:var(--paper);color:var(--muted);cursor:pointer}
   .undochip:hover{border-style:solid;border-color:var(--ink);color:var(--ink)}
+  /* board mode toggle */
+  .modesw{display:flex;border:1px solid var(--line-hard);border-radius:8px;overflow:hidden}
+  .modesw button{font:inherit;font-family:var(--mono);font-size:.74rem;padding:7px 11px;border:0;background:var(--card);color:var(--muted);cursor:pointer}
+  .modesw button+button{border-left:1px solid var(--line-hard)}
+  .modesw button:hover{color:var(--ink)}
+  .modesw button.on{background:var(--ink);color:var(--paper)}
+  /* person board */
+  .pgrid{display:grid;grid-template-columns:180px repeat(7,1fr);gap:6px;align-items:stretch}
+  .pgh{font-family:var(--mono);font-size:.72rem;color:var(--muted);text-align:center;padding:6px 0}
+  .pgh .day{display:block;font-weight:700;color:var(--ink);font-size:.8rem}
+  .pzone{grid-column:1/-1;margin-top:10px}
+  .prow-name{border-top:1px solid var(--line);padding:8px 6px 8px 0;display:flex;align-items:center;gap:8px}
+  .prow-name .zbar{width:3px;align-self:stretch;border-radius:2px;background:var(--line-hard)}
+  .prow-name.foh .zbar{background:var(--foh)}
+  .prow-name.boh .zbar{background:var(--boh)}
+  .prow-name .nm{font-weight:600;font-size:.88rem;line-height:1.2}
+  .prow-name .meta{font-family:var(--mono);font-size:.68rem;color:var(--muted)}
+  .prow-name .hrs{margin-left:auto;font-family:var(--mono);font-size:.78rem;text-align:right}
+  .prow-name .hrs b{display:block;font-size:.92rem}
+  .prow-name .hrs b.ot{color:var(--flag)}
+  .prow-name .hrs span{font-size:.64rem;color:var(--muted)}
+  .pcell{border-top:1px solid var(--line);padding:6px 2px;display:flex;flex-direction:column;gap:3px;align-items:stretch;min-height:34px}
+  .pcell .pshift{font-family:var(--mono);font-size:.68rem;padding:3px 6px;border-radius:6px;border:1px solid var(--line-hard);background:var(--paper);cursor:pointer;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .pcell .pshift:hover{border-color:var(--ink)}
+  .pcell .pshift.foh{background:var(--foh-wash);border-color:var(--foh)}
+  .pcell .pshift.boh{background:var(--boh-wash);border-color:var(--boh)}
+  .pcell .pshift.sbad{border-color:var(--flag);color:var(--flag)}
+  .pcell .pshift.swarn{border-color:var(--foh);color:#8a5320}
+  .pcell .poff{font-family:var(--mono);font-size:.64rem;color:var(--muted);text-align:center;opacity:.75;padding-top:4px}
+  .pnone{font-family:var(--mono);font-size:.68rem;color:var(--muted);text-align:center;padding-top:8px;opacity:.6}
   /* copy-week preview */
   .cp-sum{font-family:var(--mono);font-size:.8rem;line-height:1.7;margin-bottom:14px}
   .cp-sum b{font-size:1.05rem}
@@ -286,7 +316,7 @@
 <aside class="drawer" id="drawer" aria-hidden="true"></aside>
 
 <footer>
-  <span>The House · v0.5 — where back of house meets front of house</span>
+  <span>The House · v0.6 — where back of house meets front of house</span>
   <span id="foot-count"></span>
 </footer>
 
@@ -494,6 +524,7 @@ function renderSchedule(){
       <div class="range">${fmtShort(ws)} – ${fmtShort(addDaysISO(ws,6))} · Mon→Sun</div>
     </div>
     <div class="wsact">
+      ${modeSwitchHTML()}
       ${copyControlsHTML()}
     </div>
     <div class="weeklabor">
@@ -502,22 +533,11 @@ function renderSchedule(){
       ${weekIssueCount()>0? `<br><span style="color:var(--flag)">${weekIssueCount()} crew conflict${weekIssueCount()>1?"s":""}</span>`:""}
     </div>
   </div>
-  <div class="grid" id="grid">
-    <div></div>`;
-  for(let d=0; d<7; d++){
-    h += `<div class="gh"><span class="day">${DAYS[d]}</span>${fmtShort(addDaysISO(ws,d))}</div>`;
-  }
-  blockOrder.forEach(block=>{
-    h += `<div class="rowlab"><b>${BLOCKS[block].label}</b>${blockTime(block)}</div>`;
-    for(let d=0; d<7; d++){
-      h += cellHTML(d, block);
-    }
-  });
-  h += `</div>
+  ${boardMode==="person" ? personBoardHTML(ws) : shiftBoardHTML(ws)}
   <div class="legend">
     <span class="k"><span class="sw foh"></span> Front of house</span>
     <span class="k"><span class="sw boh"></span> Back of house</span>
-    <span class="k"><span class="sw gap"></span> 86'd — station unfilled</span>
+    ${boardMode==="person" ? `<span class="k">grey — can't work it</span>` : `<span class="k"><span class="sw gap"></span> 86'd — station unfilled</span>`}
     <span class="k" style="margin-left:auto">click any shift to assign the crew</span>
   </div>`;
   view.innerHTML = h;
@@ -528,9 +548,96 @@ function renderSchedule(){
   if(cpBtn && !cpBtn.disabled) cpBtn.onclick = openCopy;
   const unBtn = document.getElementById("undoW");
   if(unBtn) unBtn.onclick = undoLast;
+  document.querySelectorAll("[data-mode]").forEach(b=> b.onclick = ()=>{ boardMode = b.dataset.mode; renderSchedule(); });
   document.querySelectorAll(".cell").forEach(c=>{
     c.onclick = ()=> openShift(+c.dataset.day, c.dataset.block);
   });
+  document.querySelectorAll("[data-go]").forEach(c=>{
+    c.onclick = ()=>{ const [d,b] = c.dataset.go.split(":"); openShift(+d, b); };
+  });
+}
+
+/* the board reads two ways: shift-first (who's on tonight) and person-first
+   (what's Nina's week). view-only, so it lives outside state. */
+let boardMode = "shift";
+
+function modeSwitchHTML(){
+  return `<div class="modesw">
+    <button data-mode="shift"  class="${boardMode==="shift"?"on":""}" title="Who's on each shift">▦ by shift</button>
+    <button data-mode="person" class="${boardMode==="person"?"on":""}" title="Each person's week">☰ by person</button>
+  </div>`;
+}
+
+function shiftBoardHTML(ws){
+  let h = `<div class="grid" id="grid"><div></div>`;
+  for(let d=0; d<7; d++){
+    h += `<div class="gh"><span class="day">${DAYS[d]}</span>${fmtShort(addDaysISO(ws,d))}</div>`;
+  }
+  blockOrder.forEach(block=>{
+    h += `<div class="rowlab"><b>${BLOCKS[block].label}</b>${blockTime(block)}</div>`;
+    for(let d=0; d<7; d++) h += cellHTML(d, block);
+  });
+  return h + `</div>`;
+}
+
+/* what a person's day says when they're not on it: the schedule's silence
+   isn't the same as "free" */
+function dayOffNote(s, d){
+  if((s.timeoff||[]).includes(addDaysISO(weekKey(), d))) return "time off";
+  const offBlocks = blockOrder.filter(b=>(s.off||[]).includes(d+":"+b));
+  if(offBlocks.length === blockOrder.length) return "unavailable";
+  if(offBlocks.length) return "no "+offBlocks.map(b=>BLOCKS[b].label.toLowerCase()).join("/");
+  return "";
+}
+
+function personRowHTML(s){
+  const iss = personIssues(s.id);
+  const fl  = personFlag(s.id);
+  const pr  = primaryRole(s);
+  const zone = ROLES[pr].zone;
+  const sh = personShifts(s.id);
+  let h = `<div class="prow-name ${zone}">
+    <span class="zbar"></span>
+    <div>
+      <div class="nm">${s.name}</div>
+      <div class="meta">${ROLES[pr].code}${(s.roles||[]).length>1?` +${s.roles.length-1}`:""}${fl?` · <span style="color:var(--flag)">⚠ ${fl.txt}</span>`:""}</div>
+    </div>
+    <div class="hrs"><b class="${iss.ot?"ot":""}">${iss.hours?Math.round(iss.hours*10)/10+"h":"—"}</b><span>${iss.hours?money(sh.reduce((t,x)=>t+(s.rate||0)*blockHours(x.block),0)):"not on"}</span></div>
+  </div>`;
+  for(let d=0; d<7; d++){
+    const mine = sh.filter(x=>x.d===d);
+    let inner = mine.map(x=>{
+      const off  = isOff(s, d, x.block);
+      const bad  = off || (fl && fl.cls==="bad");
+      const warn = !bad && fl;
+      const covering = x.role !== pr;
+      return `<span class="pshift ${ROLES[x.role]?ROLES[x.role].zone:""}${bad?" sbad":(warn?" swarn":"")}" data-go="${d}:${x.block}" title="${off?offReason(s,d,x.block):(ROLES[x.role]?ROLES[x.role].label:x.role)+" · "+blockTime(x.block)}">${bad||warn?"⚠ ":""}${BLOCKS[x.block].label}${covering?` · ${ROLES[x.role]?ROLES[x.role].code:x.role}`:""}</span>`;
+    }).join("");
+    if(!mine.length){
+      const note = dayOffNote(s, d);
+      inner = note ? `<span class="poff">${note}</span>` : "";
+    }
+    h += `<div class="pcell">${inner}</div>`;
+  }
+  return h;
+}
+
+function personBoardHTML(ws){
+  const boh = state.staff.filter(s=>ROLES[primaryRole(s)]?.zone==="boh");
+  const foh = state.staff.filter(s=>ROLES[primaryRole(s)]?.zone==="foh");
+  let h = `<div class="pgrid" id="pgrid"><div></div>`;
+  for(let d=0; d<7; d++){
+    h += `<div class="pgh"><span class="day">${DAYS[d]}</span>${fmtShort(addDaysISO(ws,d))}</div>`;
+  }
+  const group = (list, zone, label)=>{
+    if(!list.length) return "";
+    let g = `<div class="pzone"><div class="zone-h ${zone}"><span class="tag"></span>${label} · ${list.length}</div></div>`;
+    list.forEach(s=> g += personRowHTML(s));
+    return g;
+  };
+  h += group(boh, "boh", "Back of house");
+  h += group(foh, "foh", "Front of house");
+  return h + `</div>`;
 }
 
 function cellHTML(d, block){
@@ -929,7 +1036,8 @@ function shiftSpan(dayIdx, block){
 function personShifts(staffId){
   const out=[];
   for(let d=0; d<7; d++) blockOrder.forEach(b=>{
-    if(shiftCell(d,b).some(x=>x.id===staffId)){ const sp=shiftSpan(d,b); out.push({d, block:b, ...sp}); }
+    const e = shiftCell(d,b).find(x=>x.id===staffId);
+    if(e){ const sp=shiftSpan(d,b); out.push({d, block:b, role:e.role, ...sp}); }
   });
   return out.sort((a,b)=>a.start-b.start);
 }
