@@ -51,6 +51,10 @@
   .wordmark .sep{color:var(--foh)}
   .rest-name{font-family:var(--mono);font-size:.78rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;background:none;border:0;cursor:pointer;padding:2px 4px;border-radius:6px}
   .rest-name:hover{background:var(--card)}
+  .rest-input{font-family:var(--mono);font-size:.78rem;color:var(--ink);text-transform:uppercase;letter-spacing:.08em;
+    background:var(--card);border:1px solid var(--line-hard);border-radius:6px;padding:2px 6px;width:15ch;outline:none}
+  .rest-input:focus{border-color:var(--ink)}
+  .rest-input::placeholder{color:var(--muted);text-transform:none;letter-spacing:0}
   nav.tabs{display:flex;gap:2px;background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:3px}
   nav.tabs button{
     font:inherit;font-size:.9rem;border:0;background:none;color:var(--muted);
@@ -303,6 +307,7 @@
     <div class="brand">
       <span class="wordmark">The<span class="sep">·</span>House</span>
       <button class="rest-name" id="restBtn" title="Rename your spot">▮ set restaurant</button>
+      <input class="rest-input" id="restInput" hidden maxlength="40" placeholder="name your spot" aria-label="Restaurant name">
     </div>
     <nav class="tabs" id="tabs">
       <button data-tab="schedule" class="on">Schedule</button>
@@ -319,7 +324,7 @@
 <aside class="drawer" id="drawer" aria-hidden="true"></aside>
 
 <footer>
-  <span>The House · v0.7 — where back of house meets front of house</span>
+  <span>The House · v0.8 — where back of house meets front of house</span>
   <span id="foot-count"></span>
 </footer>
 
@@ -507,7 +512,9 @@ function render(){
   const schedBtn = document.querySelector('#tabs button[data-tab="schedule"]');
   schedBtn.querySelector(".dot")?.remove();
   if(state.staff.length>0 && weekShort()>0){ const d=document.createElement("span"); d.className="dot"; d.title="uncovered stations this week"; schedBtn.appendChild(d); }
-  document.getElementById("restBtn").textContent = state.restaurant ? "▮ "+state.restaurant : "▮ set restaurant";
+  if(document.getElementById("restInput").hidden){
+    document.getElementById("restBtn").textContent = state.restaurant ? "▮ "+state.restaurant : "▮ set restaurant";
+  }
   document.getElementById("foot-count").textContent = state.staff.length + " on crew";
   if(tab==="schedule") renderSchedule();
   else if(tab==="staff") renderStaff();
@@ -1242,10 +1249,35 @@ function renderOrders(){
 }
 
 /* ---------- rename ---------- */
-document.getElementById("restBtn").onclick = ()=>{
-  const n = prompt("Name your restaurant", state.restaurant||"");
-  if(n!==null){ state.restaurant = n.trim(); save(); render(); }
-};
+/* the button and the field are the same spot in the bar — click swaps one for
+   the other so nothing shifts under the cursor */
+const restBtn = document.getElementById("restBtn");
+const restInput = document.getElementById("restInput");
+let renaming = false;
+
+function startRename(){
+  renaming = true;
+  restInput.value = state.restaurant || "";
+  restBtn.hidden = true;
+  restInput.hidden = false;
+  restInput.focus();
+  restInput.select();
+}
+function endRename(commit){
+  if(!renaming) return;          // blur fires after Enter has already closed it
+  renaming = false;
+  if(commit) state.restaurant = restInput.value.trim();
+  restInput.hidden = true;
+  restBtn.hidden = false;
+  if(commit) save();
+  render();
+}
+restBtn.onclick = startRename;
+restInput.addEventListener("keydown", e=>{
+  if(e.key === "Enter"){ e.preventDefault(); endRename(true); }
+  else if(e.key === "Escape"){ e.preventDefault(); endRename(false); }
+});
+restInput.addEventListener("blur", ()=> endRename(true));
 
 /* ---------- tabs ---------- */
 document.getElementById("tabs").addEventListener("click", e=>{
