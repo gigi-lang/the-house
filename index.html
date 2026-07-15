@@ -65,6 +65,22 @@
   .weekstrip .range{font-family:var(--mono);font-size:.8rem;color:var(--muted)}
   .navbtn{font:inherit;font-family:var(--mono);border:1px solid var(--line-hard);background:var(--card);width:32px;height:32px;border-radius:8px;cursor:pointer;color:var(--ink);font-size:1rem;line-height:1}
   .navbtn:hover{border-color:var(--ink)}
+  .weekstrip .wsact{margin-left:auto;display:flex;align-items:center;gap:8px}
+  .weekstrip .weeklabor{margin-left:0}
+  .copybtn{font:inherit;font-size:.82rem;font-weight:600;padding:7px 12px;border-radius:8px;border:1px solid var(--line-hard);background:var(--card);color:var(--ink);cursor:pointer}
+  .copybtn:hover{border-color:var(--ink)}
+  .copybtn:disabled{opacity:.45;cursor:default}
+  .copybtn:disabled:hover{border-color:var(--line-hard)}
+  .undochip{font:inherit;font-family:var(--mono);font-size:.74rem;padding:6px 10px;border-radius:20px;border:1px dashed var(--line-hard);background:var(--paper);color:var(--muted);cursor:pointer}
+  .undochip:hover{border-style:solid;border-color:var(--ink);color:var(--ink)}
+  /* copy-week preview */
+  .cp-sum{font-family:var(--mono);font-size:.8rem;line-height:1.7;margin-bottom:14px}
+  .cp-sum b{font-size:1.05rem}
+  .cp-list{border-top:1px solid var(--line);margin-top:10px}
+  .cp-row{display:flex;gap:10px;align-items:baseline;padding:7px 0;border-bottom:1px solid var(--line);font-size:.85rem}
+  .cp-row .when{font-family:var(--mono);font-size:.72rem;color:var(--muted);min-width:74px}
+  .cp-row .why{font-family:var(--mono);font-size:.72rem;color:var(--flag);margin-left:auto;text-align:right}
+  .cp-none{font-family:var(--mono);font-size:.76rem;color:var(--muted);padding:10px 0}
   .weeklabor{margin-left:auto;font-family:var(--mono);font-size:.82rem;color:var(--muted);text-align:right}
   .weeklabor b{color:var(--ink);font-size:1rem}
 
@@ -270,7 +286,7 @@
 <aside class="drawer" id="drawer" aria-hidden="true"></aside>
 
 <footer>
-  <span>The House · v0.4 — where back of house meets front of house</span>
+  <span>The House · v0.5 — where back of house meets front of house</span>
   <span id="foot-count"></span>
 </footer>
 
@@ -477,6 +493,9 @@ function renderSchedule(){
       <h2>Week of ${fmtShort(ws)}</h2>
       <div class="range">${fmtShort(ws)} – ${fmtShort(addDaysISO(ws,6))} · Mon→Sun</div>
     </div>
+    <div class="wsact">
+      ${copyControlsHTML()}
+    </div>
     <div class="weeklabor">
       projected labor<br><b>${money(weekCost())}</b>
       ${short>0? `<br><span style="color:var(--flag)">${short} station${short>1?"s":""} short</span>` : `<br><span style="color:var(--ok)">fully covered</span>`}
@@ -505,6 +524,10 @@ function renderSchedule(){
 
   document.getElementById("prevW").onclick = ()=>{ state.weekStart = addDaysISO(ws,-7); save(); render(); };
   document.getElementById("nextW").onclick = ()=>{ state.weekStart = addDaysISO(ws, 7); save(); render(); };
+  const cpBtn = document.getElementById("copyW");
+  if(cpBtn && !cpBtn.disabled) cpBtn.onclick = openCopy;
+  const unBtn = document.getElementById("undoW");
+  if(unBtn) unBtn.onclick = undoLast;
   document.querySelectorAll(".cell").forEach(c=>{
     c.onclick = ()=> openShift(+c.dataset.day, c.dataset.block);
   });
@@ -626,6 +649,123 @@ function wireDrawer(){
   drawer.querySelectorAll("[data-rm]").forEach(p=>{
     p.onclick = ()=>{ toggleAssign(d, block, p.dataset.rm); openShift(d, block); };
   });
+}
+
+/* ---------- copy last week ---------- */
+/* one snapshot of the target week, taken right before a bulk write */
+let undoSnap = null;
+
+function copyControlsHTML(){
+  const prev = addDaysISO(weekKey(), -7);
+  const srcCount = weekAssignCount(prev);
+  const undo = (undoSnap && undoSnap.ws === weekKey())
+    ? `<button class="undochip" id="undoW" title="Put this week back the way it was">↺ undo ${undoSnap.label}</button>` : "";
+  return `${undo}<button class="copybtn" id="copyW" ${srcCount?"":"disabled"} title="${srcCount? "Copy the week of "+fmtShort(prev)+" onto this one" : "Nothing scheduled the week of "+fmtShort(prev)}">⧉ copy last week</button>`;
+}
+function weekAssignCount(wsISO){
+  const wk = state.schedule[wsISO] || {};
+  let n = 0;
+  for(let d=0; d<7; d++) blockOrder.forEach(b=> n += (((wk[d]||{})[b])||[]).length);
+  return n;
+}
+
+/* Work out what would land before anything is written. A week is not a clean
+   stamp: the roster moves, stations get untrained, time off gets approved. */
+function copyPlan(){
+  const ws = weekKey(), prev = addDaysISO(ws,-7);
+  const srcWk = state.schedule[prev] || {};
+  const moves = [], skips = [];
+  for(let d=0; d<7; d++){
+    blockOrder.forEach(block=>{
+      (((srcWk[d]||{})[block])||[]).forEach(e=>{
+        const p = staffById(e.id);
+        if(!p){ skips.push({name:"someone off the roster", d, block, why:"no longer on crew"}); return; }
+        if(!canWork(p, e.role)){
+          skips.push({name:p.name, d, block, why:"not trained on "+roleLabel(e.role)}); return;
+        }
+        if((p.timeoff||[]).includes(addDaysISO(ws, d))){
+          skips.push({name:p.name, d, block, why:"time off "+fmtShort(addDaysISO(ws,d))}); return;
+        }
+        const dupe = shiftCellRO(ws, d, block).some(x=>x.id===e.id && x.role===e.role);
+        moves.push({d, block, id:e.id, role:e.role, name:p.name, dupe,
+                    warn: (p.off||[]).includes(d+":"+block) ? "marked unavailable" : ""});
+      });
+    });
+  }
+  return {prev, moves, skips, existing: weekAssignCount(ws)};
+}
+function shiftCellRO(wsISO, d, block){ return (((state.schedule[wsISO]||{})[d]||{})[block])||[]; }
+function roleLabel(r){ return ROLES[r] ? ROLES[r].label.toLowerCase() : r; }
+
+function openCopy(){
+  openCtx = null;
+  drawer.innerHTML = copyDrawerHTML(copyPlan());
+  drawer.classList.add("on"); drawer.setAttribute("aria-hidden","false");
+  scrim.classList.add("on");
+  document.getElementById("dx").onclick = closeDrawer;
+  const rep = document.getElementById("cp-replace"), fill = document.getElementById("cp-fill");
+  if(rep)  rep.onclick  = ()=> applyCopy("replace");
+  if(fill) fill.onclick = ()=> applyCopy("fill");
+}
+
+function copyDrawerHTML(plan){
+  const fresh = plan.moves.filter(m=>!m.dupe);
+  const cost  = fresh.reduce((t,m)=>{ const p=staffById(m.id); return t + (p?(p.rate||0)*blockHours(m.block):0); },0);
+  const warns = fresh.filter(m=>m.warn);
+  const row = (o)=>`<div class="cp-row"><span class="when">${DAYS[o.d]} ${BLOCKS[o.block].label.toLowerCase()}</span><span>${o.name}</span><span class="why">${o.why}</span></div>`;
+  return `
+    <div class="dh">
+      <div>
+        <h3>Copy last week</h3>
+        <div class="sub">week of ${fmtShort(plan.prev)} → week of ${fmtShort(weekKey())}</div>
+      </div>
+      <button class="x" id="dx" aria-label="Close">✕</button>
+    </div>
+    <div class="db">
+      <div class="cp-sum">
+        <b>${fresh.length}</b> assignment${fresh.length===1?"":"s"} to bring over${cost? ` · about ${money(cost)} of labor`:""}<br>
+        ${plan.existing? `<span style="color:var(--flag)">this week already has ${plan.existing} assignment${plan.existing===1?"":"s"}</span>` : `<span style="color:var(--muted)">this week is empty</span>`}
+        ${plan.moves.length-fresh.length? `<br><span style="color:var(--muted)">${plan.moves.length-fresh.length} already on the board — won't double up</span>`:""}
+      </div>
+
+      <div class="zone-h boh"><span class="tag"></span>Not coming over${plan.skips.length?` · ${plan.skips.length}`:""}</div>
+      <div class="cp-list">
+        ${plan.skips.length ? plan.skips.map(row).join("") : `<div class="cp-none">nothing dropped — last week's crew all still fit this week</div>`}
+      </div>
+
+      ${warns.length? `
+      <div class="zone-h foh" style="margin-top:16px"><span class="tag"></span>Coming over, still flagged · ${warns.length}</div>
+      <div class="cp-list">${warns.map(m=>row({d:m.d, block:m.block, name:m.name, why:m.warn})).join("")}</div>` : ""}
+
+      <div style="margin-top:18px;font-family:var(--mono);font-size:.72rem;color:var(--muted)">
+        Approved time off and untrained stations are dropped — last week didn't know about them.
+        Recurring unavailability comes over as it stood and stays flagged on the board.
+      </div>
+    </div>
+    <div class="df">
+      ${plan.existing
+        ? `<button class="btn ghost" id="cp-fill">Fill the gaps</button><button class="btn" id="cp-replace">Replace this week</button>`
+        : `<button class="btn" id="cp-replace" style="margin-left:auto">Copy ${fresh.length} assignment${fresh.length===1?"":"s"}</button>`}
+    </div>`;
+}
+
+function applyCopy(mode){
+  const ws = weekKey(), plan = copyPlan();
+  undoSnap = {ws, data: clone(state.schedule[ws] || {}), label:"copy"};
+  if(mode === "replace") state.schedule[ws] = {};
+  plan.moves.forEach(m=>{
+    const cell = shiftCell(m.d, m.block);
+    if(cell.some(x=>x.id===m.id && x.role===m.role)) return;   // fill mode: don't double up
+    cell.push({id:m.id, role:m.role});
+  });
+  save();
+  closeDrawer();   // closeDrawer re-renders, which draws the undo chip
+}
+function undoLast(){
+  if(!undoSnap || undoSnap.ws !== weekKey()) return;
+  state.schedule[undoSnap.ws] = undoSnap.data;
+  undoSnap = null;
+  save(); render();
 }
 
 /* ---------- crew tab ---------- */
