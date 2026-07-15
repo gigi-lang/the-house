@@ -173,6 +173,29 @@
   .tochip .rm{opacity:.6}
   .tonone{font-family:var(--mono);font-size:.66rem;color:var(--muted)}
 
+  /* ---- stations (cross-training) ---- */
+  .stations{display:flex;flex-wrap:wrap;gap:4px;padding:2px 0 8px}
+  .st{font-family:var(--mono);font-size:.66rem;font-weight:600;padding:4px 7px;border-radius:5px;border:1px solid var(--line);background:var(--paper);color:var(--muted);cursor:pointer}
+  .st:hover{border-color:var(--ink);color:var(--ink)}
+  .st.on.foh{background:var(--foh-wash);color:#8a5320;border-color:var(--foh)}
+  .st.on.boh{background:var(--boh-wash);color:#2c5052;border-color:var(--boh)}
+  .st.home{outline:1.5px solid var(--ink);outline-offset:1px}
+
+  /* ---- per-day override selector ---- */
+  .dayseg{display:flex;gap:3px;flex-wrap:wrap;margin:4px 0 2px}
+  .dsg{font:inherit;font-family:var(--mono);font-size:.72rem;padding:5px 11px;border:1px solid var(--line);border-radius:7px;background:var(--card);color:var(--muted);cursor:pointer;position:relative}
+  .dsg:hover{border-color:var(--ink);color:var(--ink)}
+  .dsg.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+  .dsg.hasov::after{content:"";position:absolute;top:3px;right:3px;width:5px;height:5px;border-radius:50%;background:var(--foh)}
+  .dsg.clr{margin-left:auto;color:var(--flag);border-color:var(--flag);background:var(--flag-wash)}
+
+  /* ---- roster sanity ---- */
+  .sanity{margin-top:16px;border-radius:var(--r);padding:12px 16px;font-family:var(--mono);font-size:.76rem}
+  .sanity.ok{background:rgba(74,122,82,.10);color:var(--ok);border:1px solid rgba(74,122,82,.35)}
+  .sanity.bad{background:var(--flag-wash);color:var(--flag);border:1px solid var(--flag)}
+  .sanity .sline{margin-top:6px;color:var(--ink)}
+  .sanity .shint{margin-top:8px;font-size:.7rem;color:var(--muted)}
+
   /* ---- staff tab ---- */
   .panel{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:18px 20px;margin-top:16px}
   .staff-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px;margin-top:14px}
@@ -247,7 +270,7 @@
 <aside class="drawer" id="drawer" aria-hidden="true"></aside>
 
 <footer>
-  <span>The House · v0.3 — where back of house meets front of house</span>
+  <span>The House · v0.4 — where back of house meets front of house</span>
   <span id="foot-count"></span>
 </footer>
 
@@ -301,7 +324,7 @@ const KEY = "the-house:v1";
 let state = load();
 
 function blankState(){
-  return { restaurant:"", weekStart: mondayISO(new Date()), staff:[], schedule:{}, req: clone(DEFAULT_REQ), blocks: defaultBlocks(), otHours:40, restHours:10 };
+  return { restaurant:"", weekStart: mondayISO(new Date()), staff:[], schedule:{}, req: clone(DEFAULT_REQ), reqDays:{}, blocks: defaultBlocks(), otHours:40, restHours:10 };
 }
 function load(){
   try{
@@ -309,10 +332,26 @@ function load(){
     if(!raw) return blankState();
     const s = JSON.parse(raw);
     if(!s.req) s.req = clone(DEFAULT_REQ);
+    if(!s.reqDays) s.reqDays = {};
     if(!s.blocks) s.blocks = defaultBlocks();
     if(typeof s.otHours !== "number") s.otHours = 40;
     if(typeof s.restHours !== "number") s.restHours = 10;
-    (s.staff||[]).forEach(p=>{ if(!Array.isArray(p.off)) p.off=[]; if(!Array.isArray(p.timeoff)) p.timeoff=[]; });
+    (s.staff||[]).forEach(p=>{
+      if(!Array.isArray(p.off)) p.off=[];
+      if(!Array.isArray(p.timeoff)) p.timeoff=[];
+      if(!Array.isArray(p.roles)) p.roles = p.role? [p.role] : ["server"];   // v0.3 -> v0.4: one station becomes many
+      if(!p.role) p.role = p.roles[0];
+    });
+    // v0.3 stored bare ids in a shift; v0.4 stores {id, role} so cross-trained crew declare their station
+    Object.values(s.schedule||{}).forEach(wk=>Object.values(wk||{}).forEach(day=>Object.keys(day||{}).forEach(b=>{
+      day[b] = (day[b]||[]).map(x=>{
+        if(typeof x === "string"){
+          const p = (s.staff||[]).find(q=>q.id===x);
+          return {id:x, role: p? (p.roles?p.roles[0]:p.role) : "server"};
+        }
+        return x;
+      }).filter(x=>x && x.id);
+    })));
     if(!s.schedule) s.schedule = {};
     if(!s.staff) s.staff = [];
     if(!s.weekStart) s.weekStart = mondayISO(new Date());
@@ -352,24 +391,35 @@ function shiftCell(dayIdx, block){
   return d[block];
 }
 function isAssigned(dayIdx, block, staffId){
-  return shiftCell(dayIdx, block).includes(staffId);
+  return shiftCell(dayIdx, block).some(x=>x.id===staffId);
 }
-function toggleAssign(dayIdx, block, staffId){
+function toggleAssign(dayIdx, block, staffId, role){
   const cell = shiftCell(dayIdx, block);
-  const i = cell.indexOf(staffId);
-  if(i>=0) cell.splice(i,1); else cell.push(staffId);
+  const i = cell.findIndex(x=>x.id===staffId && (role==null || x.role===role));
+  if(i>=0) cell.splice(i,1); else cell.push({id:staffId, role});
   save();
 }
+/* cross-training: a person can work any station in .roles; roles[0] is their home station */
+function canWork(s, role){ return !!s && (s.roles||[s.role]).includes(role); }
+function primaryRole(s){ return (s.roles && s.roles[0]) || s.role; }
+function rosterFor(role){ return state.staff.filter(s=>canWork(s, role)); }
 function staffById(id){ return state.staff.find(s=>s.id===id); }
 
 /* coverage for a shift: filled per role, gaps, cost */
+/* per-day overrides (#6): a Friday close is not a Tuesday open */
+function reqFor(dayIdx, block){
+  const ov = (state.reqDays||{})[dayIdx+":"+block];
+  return ov || state.req[block] || {};
+}
+function hasOverride(dayIdx, block){ return !!(state.reqDays||{})[dayIdx+":"+block]; }
+
 function coverage(dayIdx, block){
-  const req = state.req[block] || {};
+  const req = reqFor(dayIdx, block);
   const cell = shiftCell(dayIdx, block);
   const byRole = {};
-  cell.forEach(id=>{
-    const s = staffById(id); if(!s) return;
-    (byRole[s.role] = byRole[s.role]||[]).push(s);
+  cell.forEach(e=>{
+    const s = staffById(e.id); if(!s) return;
+    (byRole[e.role] = byRole[e.role]||[]).push(s);
   });
   let requiredTotal=0, shortTotal=0;
   const rows = roleOrder
@@ -382,8 +432,8 @@ function coverage(dayIdx, block){
       shortTotal += short;
       return {role:r, need, have, short, people:byRole[r]||[]};
     });
-  const cost = cell.reduce((sum,id)=>{
-    const s=staffById(id); return sum + (s? (s.rate||0)*blockHours(block) : 0);
+  const cost = cell.reduce((sum,e)=>{
+    const s=staffById(e.id); return sum + (s? (s.rate||0)*blockHours(block) : 0);
   },0);
   return {rows, requiredTotal, shortTotal, filled:cell.length, cost};
 }
@@ -395,6 +445,7 @@ function money(n){ return "$"+Math.round(n).toLocaleString(); }
 /* ---------- render ---------- */
 let tab = "schedule";
 let expandedStaff = null;
+let covDay = null;
 const view = document.getElementById("view");
 
 function render(){
@@ -514,8 +565,8 @@ function drawerHTML(d, block){
     if(!rows.length) return "";
     let s = `<div class="zone-h ${zoneKey}"><span class="tag"></span>${title}</div>`;
     rows.forEach(r=>{
-      const roster = state.staff.filter(p=>p.role===r.role && !isAssigned(d,block,p.id))
-        .sort((a,b)=> (isOff(a,d,block)?1:0) - (isOff(b,d,block)?1:0));
+      const roster = rosterFor(r.role).filter(p=>!isAssigned(d,block,p.id))
+        .sort((a,b)=> (isOff(a,d,block)?1:0) - (isOff(b,d,block)?1:0) || (primaryRole(a)===r.role?0:1) - (primaryRole(b)===r.role?0:1));
       s += `<div class="slot">
         <div class="slot-top">
           <span class="rolecode">${ROLES[r.role].code}</span> ${ROLES[r.role].label}
@@ -532,7 +583,7 @@ function drawerHTML(d, block){
         ${r.short? `<div class="emptyslot">${"◻ 86'd ".repeat(r.short).trim()}</div>`:""}
         ${roster.length? `<div class="addrow"><select data-add="${r.role}">
             <option value="">+ add ${ROLES[r.role].label.toLowerCase()}…</option>
-            ${roster.map(p=>`<option value="${p.id}">${isOff(p,d,block)?"⚠ ":""}${p.name}${p.rate?` · $${p.rate}/h`:''}${isOff(p,d,block)?` · ${offReason(p,d,block)}`:''}</option>`).join("")}
+            ${roster.map(p=>`<option value="${p.id}">${isOff(p,d,block)?"⚠ ":""}${p.name}${primaryRole(p)!==r.role?` · covering (${ROLES[primaryRole(p)].code})`:''}${p.rate?` · $${p.rate}/h`:''}${isOff(p,d,block)?` · ${offReason(p,d,block)}`:''}</option>`).join("")}
           </select></div>` : (r.short?`<div class="addrow"><select disabled><option>no free ${ROLES[r.role].label.toLowerCase()} on crew</option></select></div>`:"")}
       </div>`;
     });
@@ -569,7 +620,7 @@ function wireDrawer(){
          !confirm(`${p.name} is marked ${offReason(p,d,block)} for ${DAYS[d]} ${BLOCKS[block].label.toLowerCase()}.\n\nSchedule anyway?`)){
         sel.value=""; return;
       }
-      toggleAssign(d, block, sel.value); openShift(d, block);
+      toggleAssign(d, block, sel.value, sel.dataset.add); openShift(d, block);
     };
   });
   drawer.querySelectorAll("[data-rm]").forEach(p=>{
@@ -579,8 +630,8 @@ function wireDrawer(){
 
 /* ---------- crew tab ---------- */
 function renderStaff(){
-  const foh = state.staff.filter(s=>ROLES[s.role]?.zone==="foh");
-  const boh = state.staff.filter(s=>ROLES[s.role]?.zone==="boh");
+  const foh = state.staff.filter(s=>ROLES[primaryRole(s)]?.zone==="foh");
+  const boh = state.staff.filter(s=>ROLES[primaryRole(s)]?.zone==="boh");
   view.innerHTML = `
     <div class="panel">
       <h2 style="font-family:var(--disp);margin:0 0 2px">Add to the crew</h2>
@@ -613,6 +664,17 @@ function renderStaff(){
   view.querySelectorAll("[data-exp]").forEach(b=> b.onclick=()=>{
     expandedStaff = (expandedStaff===b.dataset.exp)? null : b.dataset.exp; renderStaff();
   });
+  view.querySelectorAll("[data-st]").forEach(b=> b.onclick=()=>{
+    const s = staffById(b.dataset.st); if(!s) return;
+    if(!Array.isArray(s.roles)) s.roles = [s.role];
+    const r = b.dataset.r, i = s.roles.indexOf(r);
+    if(i>=0){
+      if(s.roles.length===1){ alert(`${s.name} needs at least one station.`); return; }
+      s.roles.splice(i,1);            // removing the home station promotes the next one
+    } else s.roles.push(r);
+    s.role = s.roles[0];
+    save(); renderStaff();
+  });
   view.querySelectorAll("[data-av]").forEach(b=> b.onclick=()=>{
     const s = staffById(b.dataset.av); if(!s) return;
     if(!Array.isArray(s.off)) s.off=[];
@@ -638,10 +700,11 @@ function scard(s){
   const iss = personIssues(s.id);
   const fl = personFlag(s.id);
   const open = expandedStaff===s.id;
-  return `<div class="scard ${ROLES[s.role].zone}${open?" open":""}">
+  const pr = primaryRole(s);
+  return `<div class="scard ${ROLES[pr].zone}${open?" open":""}">
     <div class="srow">
       <span class="zbar"></span>
-      <div class="who"><div class="nm">${s.name}</div><div class="meta">${ROLES[s.role].code} · ${ROLES[s.role].label}${s.rate?` · $${s.rate}/h`:""}</div></div>
+      <div class="who"><div class="nm">${s.name}</div><div class="meta">${ROLES[pr].code} · ${ROLES[pr].label}${(s.roles||[]).length>1?` +${s.roles.length-1}`:""}${s.rate?` · $${s.rate}/h`:""}</div></div>
       <div class="shrs">
         <b class="${iss.ot?"ot":""}">${iss.hours?Math.round(iss.hours*10)/10+"h":"—"}</b>
         <span>this week</span>
@@ -654,8 +717,16 @@ function scard(s){
   </div>`;
 }
 function availEditor(s){
+  const pr = primaryRole(s);
   return `<div class="availbox">
-    <div class="availhint">click a shift to mark it unavailable</div>
+    <div class="availhint">stations they can work — click to add; ★ is their home station</div>
+    <div class="stations">
+      ${roleOrder.map(r=>{
+        const on=(s.roles||[]).includes(r), home=(r===pr);
+        return `<button class="st ${ROLES[r].zone}${on?" on":""}${home?" home":""}" data-st="${s.id}" data-r="${r}" title="${home?"home station — click another to re-home":(on?"click to remove":"click to add")}">${home?"★ ":""}${ROLES[r].code}</button>`;
+      }).join("")}
+    </div>
+    <div class="availhint" style="border-top:1px dashed var(--line);margin-top:9px">click a shift to mark it unavailable</div>
     <div class="availgrid">
       <div></div>${DAYS.map(d=>`<div class="ah">${d.charAt(0)}</div>`).join("")}
       ${blockOrder.map(b=>`
@@ -676,14 +747,14 @@ function addStaff(){
   const role = document.getElementById("f-role").value;
   const rate = parseFloat(document.getElementById("f-rate").value)||0;
   if(!name) return;
-  state.staff.push({id:"s"+Date.now()+Math.floor(Math.random()*99), name, role, rate});
+  state.staff.push({id:"s"+Date.now()+Math.floor(Math.random()*99), name, role, roles:[role], rate, off:[], timeoff:[]});
   save(); renderStaff();
 }
 function delStaff(id){
   state.staff = state.staff.filter(s=>s.id!==id);
   // pull them off any shifts
   Object.values(state.schedule).forEach(wk=>Object.values(wk).forEach(day=>Object.keys(day).forEach(b=>{
-    day[b] = day[b].filter(x=>x!==id);
+    day[b] = day[b].filter(x=>x.id!==id);
   })));
   save(); renderStaff();
 }
@@ -694,7 +765,7 @@ function loadSample(){
     ["Jamie Cole","host",18],["Alex Rivera","server",15],["Nina Park","server",15],["Chris Tran","server",15],
     ["Bianca Ford","busser",14],["Leo Marsh","bar",22],["Quinn Ada","expo",20],
   ];
-  S.forEach(([name,role,rate],i)=> state.staff.push({id:"s"+Date.now()+i, name, role, rate}));
+  S.forEach(([name,role,rate],i)=> state.staff.push({id:"s"+Date.now()+i, name, role, roles:[role], rate, off:[], timeoff:[]}));
   save(); renderStaff();
 }
 
@@ -718,7 +789,7 @@ function shiftSpan(dayIdx, block){
 function personShifts(staffId){
   const out=[];
   for(let d=0; d<7; d++) blockOrder.forEach(b=>{
-    if(shiftCell(d,b).includes(staffId)){ const sp=shiftSpan(d,b); out.push({d, block:b, ...sp}); }
+    if(shiftCell(d,b).some(x=>x.id===staffId)){ const sp=shiftSpan(d,b); out.push({d, block:b, ...sp}); }
   });
   return out.sort((a,b)=>a.start-b.start);
 }
@@ -749,11 +820,33 @@ function personFlag(staffId){
 }
 function weekIssueCount(){ return state.staff.reduce((t,s)=>t+personIssues(s.id).count, 0); }
 
+/* #7 — do the rules ask for more than the crew can field? */
+function rosterSanity(){
+  const gaps=[];
+  roleOrder.forEach(r=>{
+    let peak=0, where="";
+    for(let d=0; d<7; d++) blockOrder.forEach(b=>{
+      const n = reqFor(d,b)[r]||0;
+      if(n>peak){ peak=n; where=`${DAYS[d]} ${BLOCKS[b].label.toLowerCase()}`; }
+    });
+    const able = rosterFor(r).length;
+    if(peak>able) gaps.push({r, peak, able, where});
+  });
+  if(!gaps.length) return `<div class="sanity ok">✓ your crew can field every station these rules require</div>`;
+  return `<div class="sanity bad">
+    <b>⚠ the rules ask for crew you don't have</b>
+    ${gaps.map(g=>`<div class="sline">${ROLES[g.r].label}: needs <b>${g.peak}</b> (${g.where}) · only <b>${g.able}</b> on the crew can work it${g.able===0?" — nobody":""}</div>`).join("")}
+    <div class="shint">hire, cross-train someone into the station, or lower the rule</div>
+  </div>`;
+}
+
 /* ---------- coverage tab (editable staffing rules) ---------- */
 function renderCoverage(){
+  const D = covDay;                         // null = the every-day default; 0..6 = that day's override
+  const editing = (block)=> D===null ? (state.req[block]||{}) : reqFor(D, block);
   const card = (block)=>{
     const B = BLOCKS[block];
-    const req = state.req[block] || {};
+    const req = editing(block);
     const total = roleOrder.reduce((t,r)=>t+(req[r]||0),0);
     const zone = (zoneKey,title)=>`
       <div class="zone-h ${zoneKey}"><span class="tag"></span>${title}</div>
@@ -780,8 +873,13 @@ function renderCoverage(){
   };
   view.innerHTML = `
     <div class="weekstrip">
-      <div><h2>Coverage rules</h2><div class="range">the minimum crew each shift needs — set these to your room</div></div>
+      <div><h2>Coverage rules</h2><div class="range">${D===null?"the minimum crew each shift needs — set these to your room":`overriding <b>${DAYS[D]}</b> — leave blank days on the default`}</div></div>
       <button class="btn ghost" id="reqReset" style="margin-left:auto">Reset to defaults</button>
+    </div>
+    <div class="dayseg">
+      <button class="dsg${D===null?" on":""}" data-cd="all">Every day</button>
+      ${DAYS.map((d,i)=>`<button class="dsg${D===i?" on":""}${blockOrder.some(b=>hasOverride(i,b))?" hasov":""}" data-cd="${i}">${d}</button>`).join("")}
+      ${D!==null && blockOrder.some(b=>hasOverride(D,b))? `<button class="dsg clr" id="clrOv">clear ${DAYS[D]} override</button>`:""}
     </div>
     <div class="covwrap">${blockOrder.map(card).join("")}</div>
     <div class="panel" style="margin-top:16px">
@@ -792,7 +890,8 @@ function renderCoverage(){
         <div class="field rate"><label>Min rest (h)</label><input id="restH" type="number" min="0" step="1" value="${state.restHours}"></div>
       </div>
     </div>
-    <div class="legend" style="margin-top:14px"><span class="k">applies to every day of the week · per-day overrides are on the roadmap</span></div>`;
+    ${rosterSanity()}
+    <div class="legend" style="margin-top:14px"><span class="k">${D===null?"these numbers apply to any day without its own override":"this override applies to "+DAYS[D]+" only"}</span></div>`;
 
   document.getElementById("otH").onchange = e=>{ let v=parseInt(e.target.value,10); if(isNaN(v)||v<0)v=40; state.otHours=v; e.target.value=v; save(); };
   document.getElementById("restH").onchange = e=>{ let v=parseInt(e.target.value,10); if(isNaN(v)||v<0)v=10; state.restHours=v; e.target.value=v; save(); };
@@ -801,11 +900,17 @@ function renderCoverage(){
     inp.onchange = ()=>{
       const b=inp.dataset.block, r=inp.dataset.role;
       let v=parseInt(inp.value,10); if(isNaN(v)||v<0) v=0; inp.value=v;
-      if(!state.req[b]) state.req[b]={};
-      state.req[b][r]=v;
+      if(covDay===null){
+        if(!state.req[b]) state.req[b]={};
+        state.req[b][r]=v;
+      }else{
+        const k = covDay+":"+b;
+        if(!state.reqDays) state.reqDays={};
+        if(!state.reqDays[k]) state.reqDays[k] = clone(state.req[b]||{});   // fork from the default on first edit
+        state.reqDays[k][r]=v;
+      }
       save();
-      const el = view.querySelector(`[data-tot="${b}"] b`);
-      if(el) el.textContent = roleOrder.reduce((t,rr)=>t+((state.req[b]||{})[rr]||0),0);
+      renderCoverage();
     };
   });
   view.querySelectorAll("input[data-btime]").forEach(inp=>{
@@ -820,6 +925,15 @@ function renderCoverage(){
       if(el) el.textContent = `${blockTime(b)} · ${blockHours(b)}h`;
     };
   });
+  view.querySelectorAll("[data-cd]").forEach(b=> b.onclick=()=>{
+    covDay = b.dataset.cd==="all" ? null : parseInt(b.dataset.cd,10);
+    renderCoverage();
+  });
+  const clr = document.getElementById("clrOv");
+  if(clr) clr.onclick=()=>{
+    blockOrder.forEach(b=>{ delete state.reqDays[covDay+":"+b]; });
+    save(); renderCoverage();
+  };
   document.getElementById("reqReset").onclick=()=>{
     if(confirm("Reset all coverage rules to the starting defaults?")){ state.req=clone(DEFAULT_REQ); save(); renderCoverage(); }
   };
